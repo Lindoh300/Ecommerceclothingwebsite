@@ -27,22 +27,27 @@ export function Header() {
   ];
 
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Logo and Brand */}
-          <Link to="/" className="flex items-center gap-2">
-            <Shirt className="w-10 h-10 text-blue-600" />
-            <span className="font-bold text-2xl md:text-3xl">
-              <span className="text-yellow-500">C</span>
-              <span className="text-green-500">l</span>
-              <span className="text-blue-500">o</span>
-              <span className="text-red-500">t</span>
-              <span className="text-purple-500">h</span>
-              <span className="text-white" style={{ textShadow: '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000' }}>i</span>
-              <span className="text-yellow-500">n</span>
-              <span className="text-green-500">g</span>
-              <span className="text-white" style={{ textShadow: '-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000, 0 -2px 0 #000, 0 2px 0 #000' }}> Store Online</span>
+      <header className="bg-white shadow-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            {/* Logo and Brand */}
+            <Link to="/" className="flex items-center gap-2">
+              <img
+                src="/images/logo.jpg"
+                alt="Logo"
+                className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = 'public/images/4nguru.jpg';
+                }}
+              />
+              <span className="font-bold text-2xl md:text-3xl">
+              <span className="text-yellow-500">4</span>
+              <span className="text-green-500">n</span>
+              <span className="text-blue-500">g</span>
+              <span className="text-red-500">u</span>
+              <span className="text-purple-500">r</span>
+              <span className="text-yellow-500">u</span>
+              <span className="text-white" style={{ textShadow: '-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000, 0 -2px 0 #000, 0 2px 0 #000' }}> The Brand</span>
             </span>
           </Link>
 

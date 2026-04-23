@@ -45,7 +45,7 @@ export function Cart() {
     message += `Total: R${total.toFixed(2)}`;
 
     const encodedMessage = encodeURIComponent(message);
-    const whatsappNumber = "1234567890"; // Replace with your WhatsApp number
+    const whatsappNumber = "+27678684428";
     window.open(`https://wa.me/${whatsappNumber}?text=${encodedMessage}`, '_blank');
 
     clearCart();

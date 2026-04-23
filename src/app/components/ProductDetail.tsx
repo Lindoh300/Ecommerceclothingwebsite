@@ -3,6 +3,7 @@ import { useState } from "react";
 import { getProductById, addToCart } from "../utils/storage";
 import { ShoppingCart, ArrowLeft } from "lucide-react";
 import { Button } from "./ui/button";
+import { toast } from "sonner";
 
 export function ProductDetail() {
   const { id } = useParams();
@@ -26,17 +27,19 @@ export function ProductDetail() {
 
   const handleAddToCart = () => {
     if (product.sizes.length > 1 && !selectedSize) {
-      alert('Please select a size');
+      toast.error('Please select a size');
       return;
     }
     if (product.colors.length > 1 && !selectedColor) {
-      alert('Please select a color');
+      toast.error('Please select a color');
       return;
     }
 
     addToCart(product, quantity, selectedSize || product.sizes[0], selectedColor || product.colors[0]);
     window.dispatchEvent(new Event('cartUpdated'));
-    alert('Added to cart!');
+    toast.success('Added to cart!', {
+      description: `${quantity} × ${product.name}`
+    });
   };
 
   return (

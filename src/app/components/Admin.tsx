@@ -6,6 +6,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { toast } from "sonner";
 
 const ADMIN_PASSWORD = "admin123"; // Change this to your desired password
 
@@ -47,9 +48,11 @@ export function Admin() {
 
     if (editing) {
       updateProduct(editing, formData);
+      toast.success('Product updated successfully');
       setEditing(null);
     } else {
       addProduct(formData as Omit<Product, 'id'>);
+      toast.success('Product added successfully');
       setAdding(false);
     }
 
@@ -79,7 +82,7 @@ export function Admin() {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert('Image size should be less than 5MB');
+        toast.error('Image size should be less than 5MB');
         return;
       }
 
@@ -88,16 +91,28 @@ export function Admin() {
         const base64String = reader.result as string;
         setFormData({ ...formData, image: base64String });
         setImagePreview(base64String);
+        toast.success('Image uploaded successfully');
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this product?')) {
-      deleteProduct(id);
-      refreshProducts();
-    }
+  const handleDelete = (id: string, productName: string) => {
+    toast('Delete Product?', {
+      description: `Are you sure you want to delete "${productName}"?`,
+      action: {
+        label: 'Delete',
+        onClick: () => {
+          deleteProduct(id);
+          refreshProducts();
+          toast.success('Product deleted successfully');
+        },
+      },
+      cancel: {
+        label: 'Cancel',
+        onClick: () => {},
+      },
+    });
   };
 
   const handleCancel = () => {
@@ -122,8 +137,9 @@ export function Admin() {
       setIsAuthenticated(true);
       sessionStorage.setItem('admin_authenticated', 'true');
       setPasswordInput('');
+      toast.success('Welcome to Admin Panel');
     } else {
-      alert('Incorrect password');
+      toast.error('Incorrect password');
       setPasswordInput('');
     }
   };
@@ -372,7 +388,7 @@ export function Admin() {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(product.id)}
+                        onClick={() => handleDelete(product.id, product.name)}
                         className="text-red-600 hover:text-red-700"
                       >
                         <Trash2 className="w-4 h-4" />
