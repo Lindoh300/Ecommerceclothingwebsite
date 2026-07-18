@@ -5,6 +5,8 @@ import { CategoryPage } from "./components/CategoryPage";
 import { ProductDetail } from "./components/ProductDetail";
 import { Cart } from "./components/Cart";
 import { Admin } from "./components/Admin";
+import { About } from "./components/About";
+import { CustomerService } from "./components/CustomerService";
 import { NotFound } from "./components/NotFound";
 
 export const router = createBrowserRouter([
@@ -21,6 +23,8 @@ export const router = createBrowserRouter([
       { path: "product/:id", Component: ProductDetail },
       { path: "cart", Component: Cart },
       { path: "admin", Component: Admin },
+      { path: "about", Component: About },
+      { path: "customer-service", Component: CustomerService },
       { path: "*", Component: NotFound },
     ],
   },

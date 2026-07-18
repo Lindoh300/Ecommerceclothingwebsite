@@ -1,7 +1,7 @@
 
-  # E-commerce Clothing Website
+  # 4Nguru The Brand Onlne
 
-  This is a code bundle for E-commerce Clothing Website. The original project is available at https://www.figma.com/design/eAoNrNwd7MRIraRP47Zh2Z/E-commerce-Clothing-Website.
+  This is a code bundle for 4Nguru The Brand Onlne. The original project is available at https://www.figma.com/design/eAoNrNwd7MRIraRP47Zh2Z/4Nguru-The-Brand-Onlne.
 
   ## Running the code
 

@@ -5,6 +5,7 @@ export interface Product {
   price: number;
   description: string;
   image: string;
+  images: string[];
   sizes: string[];
   colors: string[];
   stock: number;
@@ -28,6 +29,7 @@ const defaultProducts: Product[] = [
     price: 25,
     description: 'Comfortable 100% cotton t-shirt perfect for everyday wear',
     image: '/images/products/tshirt1.jpg',
+    images: ['/images/products/tshirt1.jpg', '', ''],
     sizes: ['S', 'M', 'L', 'XL', 'XXL'],
     colors: ['Black', 'White', 'Navy', 'Gray'],
     stock: 50
@@ -39,6 +41,7 @@ const defaultProducts: Product[] = [
     price: 45,
     description: 'Breathable sports jersey with moisture-wicking technology',
     image: '/images/products/jersey1.jpg',
+    images: ['/images/products/jersey1.jpg', '', ''],
     sizes: ['S', 'M', 'L', 'XL'],
     colors: ['Red', 'Blue', 'Green'],
     stock: 30
@@ -50,6 +53,7 @@ const defaultProducts: Product[] = [
     price: 30,
     description: 'Lightweight shorts ideal for workouts and sports',
     image: '/images/products/shorts1.jpg',
+    images: ['/images/products/shorts1.jpg', '', ''],
     sizes: ['S', 'M', 'L', 'XL'],
     colors: ['Black', 'Navy', 'Gray'],
     stock: 40
@@ -61,6 +65,7 @@ const defaultProducts: Product[] = [
     price: 50,
     description: 'Comfortable jogger pants with elastic waistband',
     image: '/images/products/pants1.jpg',
+    images: ['/images/products/pants1.jpg', '', ''],
     sizes: ['S', 'M', 'L', 'XL', 'XXL'],
     colors: ['Black', 'Gray', 'Khaki'],
     stock: 35
@@ -72,6 +77,7 @@ const defaultProducts: Product[] = [
     price: 20,
     description: 'Adjustable baseball cap with embroidered logo',
     image: '/images/products/cap1.jpg',
+    images: ['/images/products/cap1.jpg', '', ''],
     sizes: ['One Size'],
     colors: ['Black', 'Navy', 'White', 'Red'],
     stock: 60
@@ -101,9 +107,16 @@ export const addProduct = (product: Omit<Product, 'id'>): Product => {
     ...product,
     id: Date.now().toString()
   };
-  products.push(newProduct);
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-  return newProduct;
+  products.push(newProduct as Product);
+  try {
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+      alert('Storage quota exceeded. Please use smaller images or delete existing products. For professional use, connecting a database like Supabase is recommended.');
+    }
+    throw e;
+  }
+  return newProduct as Product;
 };
 
 export const updateProduct = (id: string, updates: Partial<Product>): void => {
@@ -137,7 +150,15 @@ export const addToCart = (product: Product, quantity: number = 1, size?: string,
     cart.push({ ...product, quantity, selectedSize: size, selectedColor: color });
   }
 
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  try {
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    window.dispatchEvent(new Event('cartUpdated'));
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+      alert('Cart is full. This usually happens when product data (including large images) exceeds the browser storage limit. Consider reducing the number of products or using a real database.');
+    }
+    throw e;
+  }
 };
 
 export const updateCartItem = (index: number, quantity: number): void => {

@@ -22,11 +22,12 @@ export function Admin() {
     price: 0,
     description: '',
     image: '',
+    images: ['', '', ''],
     sizes: ['S', 'M', 'L', 'XL'],
     colors: ['Black', 'White'],
     stock: 0
   });
-  const [imagePreview, setImagePreview] = useState<string>('');
+  const [imagePreviews, setImagePreviews] = useState<string[]>(['', '', '']);
 
   useEffect(() => {
     const savedAuth = sessionStorage.getItem('admin_authenticated');
@@ -47,11 +48,11 @@ export function Admin() {
     e.preventDefault();
 
     if (editing) {
-      updateProduct(editing, formData);
+      updateProduct(editing, { ...formData, image: formData.images?.[0] || '' });
       toast.success('Product updated successfully');
       setEditing(null);
     } else {
-      addProduct(formData as Omit<Product, 'id'>);
+      addProduct({ ...formData, image: formData.images?.[0] || '' } as Omit<Product, 'id'>);
       toast.success('Product added successfully');
       setAdding(false);
     }
@@ -62,69 +63,63 @@ export function Admin() {
       price: 0,
       description: '',
       image: '',
+      images: ['', '', ''],
       sizes: ['S', 'M', 'L', 'XL'],
       colors: ['Black', 'White'],
       stock: 0
     });
-    setImagePreview('');
+    setImagePreviews(['', '', '']);
 
     refreshProducts();
   };
 
   const handleEdit = (product: Product) => {
     setEditing(product.id);
-    setFormData(product);
-    setImagePreview(product.image);
+    const images = product.images || [product.image, '', ''];
+    // Ensure we always have 3 slots
+    while (images.length < 3) images.push('');
+    const fullProduct = { ...product, images };
+    setFormData(fullProduct);
+    setImagePreviews(images);
     setAdding(false);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image size should be less than 5MB');
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('Image size should be less than 2MB');
         return;
       }
 
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
-        setFormData({ ...formData, image: base64String });
-        setImagePreview(base64String);
-        toast.success('Image uploaded successfully');
+        const newImages = [...(formData.images || ['', '', ''])];
+        newImages[index] = base64String;
+        setFormData({ ...formData, images: newImages });
+        
+        const newPreviews = [...imagePreviews];
+        newPreviews[index] = base64String;
+        setImagePreviews(newPreviews);
+        
+        toast.success(`Image ${index + 1} uploaded successfully`);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleDelete = (id: string, productName: string) => {
-    toast('Delete Product?', {
-      description: `Are you sure you want to delete "${productName}"?`,
-      action: {
-        label: 'Delete',
-        onClick: () => {
-          deleteProduct(id);
-          refreshProducts();
-          toast.success('Product deleted successfully');
-        },
-      },
-      cancel: {
-        label: 'Cancel',
-        onClick: () => {},
-      },
-    });
-  };
-
   const handleCancel = () => {
     setEditing(null);
     setAdding(false);
-    setImagePreview('');
+    setImagePreviews(['', '', '']);
     setFormData({
       name: '',
       category: 'tshirts',
       price: 0,
       description: '',
       image: '',
+      images: ['', '', ''],
       sizes: ['S', 'M', 'L', 'XL'],
       colors: ['Black', 'White'],
       stock: 0
@@ -269,42 +264,68 @@ export function Admin() {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <Label htmlFor="image">Product Image</Label>
-                  <div className="flex gap-4 items-start">
-                    <div className="flex-1">
-                      <Input
-                        id="imageFile"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="mb-2"
-                      />
-                      <p className="text-sm text-gray-500">
-                        Or enter image URL below:
-                      </p>
-                      <Input
-                        id="image"
-                        value={formData.image?.startsWith('data:') ? '' : formData.image}
-                        onChange={(e) => {
-                          setFormData({ ...formData, image: e.target.value });
-                          setImagePreview(e.target.value);
-                        }}
-                        placeholder="/images/products/example.jpg"
-                        className="mt-1"
-                      />
-                    </div>
-                    {imagePreview && (
-                      <div className="w-32 h-32 border rounded overflow-hidden bg-gray-100">
-                        <img
-                          src={imagePreview}
-                          alt="Preview"
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128"%3E%3Crect fill="%23e5e7eb" width="128" height="128"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="14" x="50%25" y="50%25" text-anchor="middle" dominant-baseline="middle"%3EInvalid%3C/text%3E%3C/svg%3E';
-                          }}
-                        />
+                  <div className="flex justify-between items-end mb-1">
+                    <Label>Product Images (Max 3)</Label>
+                    <span className="text-[10px] text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-100">
+                      Tip: Use small images or URLs to avoid storage limits
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                    {[0, 1, 2].map((index) => (
+                      <div key={index} className="space-y-2">
+                        <Label htmlFor={`image-${index}`} className="text-xs text-gray-500">
+                          Image {index + 1} {index === 0 && '(Main)'}
+                        </Label>
+                        <div className="flex flex-col gap-2">
+                          <Input
+                            id={`imageFile-${index}`}
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleImageUpload(e, index)}
+                            className="text-xs"
+                          />
+                          <Input
+                            value={formData.images?.[index]?.startsWith('data:') ? '' : formData.images?.[index]}
+                            onChange={(e) => {
+                              const newImages = [...(formData.images || ['', '', ''])];
+                              newImages[index] = e.target.value;
+                              setFormData({ ...formData, images: newImages });
+                              const newPreviews = [...imagePreviews];
+                              newPreviews[index] = e.target.value;
+                              setImagePreviews(newPreviews);
+                            }}
+                            placeholder="Or image URL"
+                            className="text-xs"
+                          />
+                          {imagePreviews[index] && (
+                            <div className="aspect-square border rounded overflow-hidden bg-gray-100 relative group">
+                              <img
+                                src={imagePreviews[index]}
+                                alt={`Preview ${index + 1}`}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128"%3E%3Crect fill="%23e5e7eb" width="128" height="128"/%3E%3C/svg%3E';
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newImages = [...(formData.images || ['', '', ''])];
+                                  newImages[index] = '';
+                                  setFormData({ ...formData, images: newImages });
+                                  const newPreviews = [...imagePreviews];
+                                  newPreviews[index] = '';
+                                  setImagePreviews(newPreviews);
+                                }}
+                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
                 </div>
                 <div>

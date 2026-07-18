@@ -24,30 +24,31 @@ export function Header() {
     { name: 'Shorts', path: '/shorts' },
     { name: 'Pants', path: '/pants' },
     { name: 'Accessories', path: '/accessories' },
+    { name: 'About', path: '/about' },
   ];
 
   return (
-      <header className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            {/* Logo and Brand */}
-            <Link to="/" className="flex items-center gap-2">
-              <img
-                src="/images/logo.jpg"
-                alt="Logo"
-                className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover"
-                onError={(e) => {
-                  e.currentTarget.src = 'public/images/4nguru.jpg';
-                }}
-              />
-              <span className="font-bold text-2xl md:text-3xl">
+    <header className="bg-white shadow-sm sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          {/* Logo and Brand */}
+          <Link to="/" className="flex items-center gap-2">
+            <img
+              src="/images/logo.jpg"
+              alt="Logo"
+              className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = '/images/logo-placeholder.svg';
+              }}
+            />
+            <span className="font-bold text-2xl md:text-3xl">
               <span className="text-yellow-500">4</span>
-              <span className="text-green-500">n</span>
+              <span className="text-green-500">N</span>
               <span className="text-blue-500">g</span>
               <span className="text-red-500">u</span>
               <span className="text-purple-500">r</span>
               <span className="text-yellow-500">u</span>
-              <span className="text-white" style={{ textShadow: '-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000, 0 -2px 0 #000, 0 2px 0 #000' }}> The Brand</span>
+              <span className="text-gray-800"> The Brand Online</span>
             </span>
           </Link>
 

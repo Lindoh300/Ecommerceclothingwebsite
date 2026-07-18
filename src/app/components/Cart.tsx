@@ -33,19 +33,29 @@ export function Cart() {
   const handleWhatsAppCheckout = () => {
     if (cart.length === 0) return;
 
+    const siteUrl = window.location.origin;
     let message = "Hi! I'd like to place an order:\n\n";
+
     cart.forEach((item, index) => {
       message += `${index + 1}. ${item.name}\n`;
       message += `   - Price: R${item.price}\n`;
       message += `   - Quantity: ${item.quantity}\n`;
       if (item.selectedSize) message += `   - Size: ${item.selectedSize}\n`;
       if (item.selectedColor) message += `   - Color: ${item.selectedColor}\n`;
-      message += `   - Subtotal: R${item.price * item.quantity}\n\n`;
+      message += `   - Subtotal: R${item.price * item.quantity}\n`;
+
+      // Add image URL if it's a web-accessible path
+      if (item.image && !item.image.startsWith('data:')) {
+        const imageUrl = item.image.startsWith('http') ? item.image : `${siteUrl}${item.image}`;
+        message += `   - Image: ${imageUrl}\n`;
+      }
+      message += `\n`;
     });
+
     message += `Total: R${total.toFixed(2)}`;
 
     const encodedMessage = encodeURIComponent(message);
-    const whatsappNumber = "+27678684428";
+    const whatsappNumber = "27678684428"; // 4Nguru The Brand Online WhatsApp
     window.open(`https://wa.me/${whatsappNumber}?text=${encodedMessage}`, '_blank');
 
     clearCart();
