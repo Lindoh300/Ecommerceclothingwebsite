@@ -1,5 +1,5 @@
 
-  # 4Nguru The Brand Onlne
+  # 4Nguru The Brand Onilne
 
   This is a code bundle for 4Nguru The Brand Onlne. The original project is available at https://www.figma.com/design/eAoNrNwd7MRIraRP47Zh2Z/4Nguru-The-Brand-Onlne.
 
