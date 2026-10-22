@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { Product } from "../utils/storage";
+import { ProductImage } from "./prism";
 
 interface ProductCardProps {
   product: Product;
@@ -7,26 +8,23 @@ interface ProductCardProps {
 
 export function ProductCard({ product }: ProductCardProps) {
   return (
-    <Link to={`/product/${product.id}`} className="group">
-      <div className="bg-white rounded-lg shadow hover:shadow-xl transition-shadow overflow-hidden">
-        <div className="aspect-square bg-gray-200 overflow-hidden">
-          <img
-            src={product.image}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            onError={(e) => {
-              e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="400"%3E%3Crect fill="%23e5e7eb" width="400" height="400"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="24" x="50%25" y="50%25" text-anchor="middle" dominant-baseline="middle"%3ENo Image%3C/text%3E%3C/svg%3E';
-            }}
-          />
+    <Link to={`/product/${product.id}`} className="group block">
+      <div className="aspect-square bg-b5 overflow-hidden">
+        <div className="h-full w-full transition-transform duration-300 group-hover:scale-[1.03]">
+          <ProductImage src={product.image} alt={product.name} seed={product.id} />
         </div>
-        <div className="p-4">
-          <h3 className="mb-2">{product.name}</h3>
-          <p className="text-gray-600 text-sm mb-2 line-clamp-2">{product.description}</p>
-          <div className="flex justify-between items-center">
-            <span className="text-blue-600">R{product.price}</span>
-            <span className="text-sm text-gray-500">{product.stock} in stock</span>
-          </div>
+      </div>
+      <div className="mt-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="uppercase font-medium text-[15px]">{product.name}</h3>
+          <span className="font-mono shrink-0">R{product.price}</span>
         </div>
+        <p className="text-b60 text-sm mt-1 line-clamp-2">{product.description}</p>
+        {product.stock > 0 ? (
+          <p className="micro text-b60 mt-2">{product.stock} in stock</p>
+        ) : (
+          <p className="micro text-prism mt-2">Sold out</p>
+        )}
       </div>
     </Link>
   );

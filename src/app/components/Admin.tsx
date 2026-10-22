@@ -146,47 +146,46 @@ export function Admin() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full">
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <div className="text-center mb-8">
-              <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-                <Lock className="w-8 h-8 text-blue-600" />
-              </div>
-              <h2 className="text-3xl">Admin Login</h2>
-              <p className="text-gray-600 mt-2">Enter password to access admin panel</p>
-            </div>
-            <form onSubmit={handleLogin}>
-              <div className="mb-6">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={passwordInput}
-                  onChange={(e) => setPasswordInput(e.target.value)}
-                  placeholder="Enter admin password"
-                  required
-                  autoFocus
-                />
-              </div>
-              <Button type="submit" className="w-full">
-                Login
-              </Button>
-            </form>
-            <p className="text-xs text-gray-500 text-center mt-4">
-              Default password: admin123
-            </p>
+      <div className="min-h-screen bg-paper flex items-center justify-center py-16 px-6">
+        <div className="max-w-md w-full border border-b10 p-8 md:p-10">
+          <div className="text-center mb-8">
+            <Lock className="w-6 h-6 text-ink mx-auto mb-6" />
+            <h1 className="display h-mid mb-4">Admin</h1>
+            <p className="text-b60">Enter password to access admin panel</p>
           </div>
+          <form onSubmit={handleLogin}>
+            <div className="mb-6">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="Enter admin password"
+                required
+                autoFocus
+              />
+            </div>
+            <Button type="submit" className="w-full">
+              Login
+            </Button>
+          </form>
+          <p className="text-xs text-b60 text-center mt-4">
+            Default password: admin123
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl">Admin Panel</h1>
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-[1968px] mx-auto px-6 py-16">
+        <div className="flex flex-wrap justify-between items-end gap-6 pb-12 mb-16 border-b border-b10">
+          <div>
+            <p className="micro text-b60 mb-6">Admin</p>
+            <h1 className="display h-sec">Admin Panel</h1>
+          </div>
           <div className="flex gap-2">
             <Button onClick={() => setAdding(true)} disabled={adding || editing !== null}>
               <Plus className="w-4 h-4 mr-2" />
@@ -200,8 +199,8 @@ export function Admin() {
 
         {/* Add/Edit Form */}
         {(adding || editing) && (
-          <div className="bg-white rounded-lg shadow p-6 mb-8">
-            <h2 className="text-xl mb-4">{editing ? 'Edit Product' : 'Add New Product'}</h2>
+          <div className="border border-b10 p-6 md:p-8 mb-16">
+            <h2 className="display h-mid mb-8">{editing ? 'Edit Product' : 'Add New Product'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
@@ -264,16 +263,16 @@ export function Admin() {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <div className="flex justify-between items-end mb-1">
+                  <div className="flex flex-wrap justify-between items-end gap-2 mb-1">
                     <Label>Product Images (Max 3)</Label>
-                    <span className="text-[10px] text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-100">
+                    <span className="font-mono text-[11px] text-b60 border border-b10 px-2 py-1">
                       Tip: Use small images or URLs to avoid storage limits
                     </span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
                     {[0, 1, 2].map((index) => (
                       <div key={index} className="space-y-2">
-                        <Label htmlFor={`image-${index}`} className="text-xs text-gray-500">
+                        <Label htmlFor={`image-${index}`} className="text-xs text-b60">
                           Image {index + 1} {index === 0 && '(Main)'}
                         </Label>
                         <div className="flex flex-col gap-2">
@@ -298,7 +297,7 @@ export function Admin() {
                             className="text-xs"
                           />
                           {imagePreviews[index] && (
-                            <div className="aspect-square border rounded overflow-hidden bg-gray-100 relative group">
+                            <div className="aspect-square border border-b10 overflow-hidden bg-b5 relative group">
                               <img
                                 src={imagePreviews[index]}
                                 alt={`Preview ${index + 1}`}
@@ -317,7 +316,7 @@ export function Admin() {
                                   newPreviews[index] = '';
                                   setImagePreviews(newPreviews);
                                 }}
-                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="absolute top-1 right-1 bg-ink text-paper hover:bg-prism p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                               >
                                 <X className="w-3 h-3" />
                               </button>
@@ -368,18 +367,18 @@ export function Admin() {
         )}
 
         {/* Products List */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs uppercase tracking-wider">Product</th>
-                <th className="px-6 py-3 text-left text-xs uppercase tracking-wider">Category</th>
-                <th className="px-6 py-3 text-left text-xs uppercase tracking-wider">Price</th>
-                <th className="px-6 py-3 text-left text-xs uppercase tracking-wider">Stock</th>
-                <th className="px-6 py-3 text-left text-xs uppercase tracking-wider">Actions</th>
+        <div className="border border-b10 overflow-x-auto">
+          <table className="min-w-full text-left">
+            <thead>
+              <tr className="border-b border-b10">
+                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Product</th>
+                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Category</th>
+                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Price</th>
+                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Stock</th>
+                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-b10">
               {products.map((product) => (
                 <tr key={product.id}>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -387,32 +386,34 @@ export function Admin() {
                       <img
                         src={product.image}
                         alt={product.name}
-                        className="w-10 h-10 rounded object-cover"
+                        className="w-10 h-10 object-cover border border-b10"
                         onError={(e) => {
                           e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="40"%3E%3Crect fill="%23e5e7eb" width="40" height="40"/%3E%3C/svg%3E';
                         }}
                       />
-                      <div className="ml-4">
+                      <div className="ml-4 text-ink">
                         <div>{product.name}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap capitalize">{product.category}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">R{product.price}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">{product.stock}</td>
+                  <td className="px-6 py-4 whitespace-nowrap micro text-b60">{product.category}</td>
+                  <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">R{product.price}</td>
+                  <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">{product.stock}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleEdit(product)}
-                        className="text-blue-600 hover:text-blue-700"
+                        aria-label="Edit product"
+                        className="p-1 text-ink hover:text-prism transition-colors"
                       >
-                        <Edit className="w-4 h-4" />
+                        <Edit className="w-6 h-6" />
                       </button>
                       <button
                         onClick={() => handleDelete(product.id, product.name)}
-                        className="text-red-600 hover:text-red-700"
+                        aria-label="Delete product"
+                        className="p-1 text-ink hover:text-prism transition-colors"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-6 h-6" />
                       </button>
                     </div>
                   </td>

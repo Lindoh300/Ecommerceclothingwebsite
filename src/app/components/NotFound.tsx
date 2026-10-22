@@ -1,16 +1,13 @@
 import { Link } from "react-router";
-import { Button } from "./ui/button";
 
 export function NotFound() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-paper px-6 py-16">
       <div className="text-center">
-        <h1 className="text-6xl mb-4">404</h1>
-        <h2 className="text-2xl mb-4">Page Not Found</h2>
-        <p className="text-gray-600 mb-8">The page you're looking for doesn't exist.</p>
-        <Link to="/">
-          <Button>Go Home</Button>
-        </Link>
+        <h1 className="display text-[clamp(120px,30vw,300px)] leading-none mb-2">404</h1>
+        <p className="hand mb-6">Page not found</p>
+        <p className="text-b60 mb-10">The page you're looking for doesn't exist.</p>
+        <Link to="/" className="cta">Go home</Link>
       </div>
     </div>
   );

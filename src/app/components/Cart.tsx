@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { getCart, removeFromCart, updateCartItem, getCartTotal, clearCart } from "../utils/storage";
-import { Trash2, ShoppingBag, MessageCircle } from "lucide-react";
-import { Button } from "./ui/button";
+import { Trash2, MessageCircle } from "lucide-react";
+import { ProductImage } from "./prism/ProductImage";
 
 export function Cart() {
   const [cart, setCart] = useState(getCart());
@@ -65,65 +65,60 @@ export function Cart() {
 
   if (cart.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <ShoppingBag className="w-24 h-24 mx-auto text-gray-400 mb-4" />
-          <h2 className="text-2xl mb-4">Your cart is empty</h2>
-          <p className="text-gray-600 mb-8">Start shopping to add items to your cart</p>
-          <Link to="/">
-            <Button>Continue Shopping</Button>
-          </Link>
+      <div className="min-h-screen bg-paper py-16 md:py-24">
+        <div className="max-w-[1968px] mx-auto px-6 text-center">
+          <p className="micro text-b60 mb-3">Your bag</p>
+          <h2 className="display h-sec mb-6">Your cart is empty</h2>
+          <p className="text-b60 mb-10">Start shopping to add items to your cart</p>
+          <Link to="/" className="cta">Continue shopping</Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-3xl mb-8">Shopping Cart</h1>
+    <div className="min-h-screen bg-paper py-12 md:py-16">
+      <div className="max-w-[1968px] mx-auto px-6">
+        <p className="micro text-b60 mb-3">Your bag</p>
+        <h1 className="display h-sec mb-12">Cart</h1>
 
-        <div className="grid lg:grid-cols-3 gap-8">
+        <div className="grid lg:grid-cols-3 gap-10 lg:gap-16">
           {/* Cart Items */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow">
+            <div className="border-t border-b10">
               {cart.map((item, index) => (
-                <div key={`${item.id}-${index}`} className="flex gap-4 p-4 border-b last:border-b-0">
-                  <img
-                    src={item.image}
-                    alt={item.name}
-                    className="w-24 h-24 object-cover rounded"
-                    onError={(e) => {
-                      e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23e5e7eb" width="100" height="100"/%3E%3C/svg%3E';
-                    }}
-                  />
-                  <div className="flex-1">
-                    <h3 className="mb-1">{item.name}</h3>
-                    <p className="text-sm text-gray-600 mb-2">
+                <div key={`${item.id}-${index}`} className="flex gap-6 py-6 border-b border-b10">
+                  <div className="w-24 h-24 shrink-0 bg-b5 overflow-hidden">
+                    <ProductImage src={item.image} alt={item.name} seed={item.id} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="uppercase font-display font-bold tracking-tight mb-1">{item.name}</h3>
+                    <p className="micro text-b60 mb-2">
                       {item.selectedSize && `Size: ${item.selectedSize}`}
                       {item.selectedSize && item.selectedColor && ' | '}
                       {item.selectedColor && `Color: ${item.selectedColor}`}
                     </p>
-                    <p className="text-blue-600">R{item.price}</p>
+                    <p className="font-mono text-ink">R{item.price}</p>
                   </div>
                   <div className="flex flex-col items-end justify-between">
                     <button
                       onClick={() => handleRemove(index)}
-                      className="text-red-600 hover:text-red-700"
+                      className="text-b60 hover:text-prism transition-colors"
+                      aria-label="Remove item"
                     >
                       <Trash2 className="w-5 h-5" />
                     </button>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity - 1)}
-                        className="w-8 h-8 border border-gray-300 rounded hover:bg-gray-100"
+                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors"
                       >
                         -
                       </button>
-                      <span className="w-8 text-center">{item.quantity}</span>
+                      <span className="w-8 text-center font-mono">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
-                        className="w-8 h-8 border border-gray-300 rounded hover:bg-gray-100"
+                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors"
                       >
                         +
                       </button>
@@ -136,32 +131,32 @@ export function Cart() {
 
           {/* Order Summary */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow p-6 sticky top-20">
-              <h2 className="text-xl mb-4">Order Summary</h2>
+            <div className="border border-b10 p-6 sticky top-24">
+              <p className="micro text-b60 mb-4">Order summary</p>
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between">
                   <span>Subtotal</span>
-                  <span>R{total.toFixed(2)}</span>
+                  <span className="font-mono">R{total.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-sm text-gray-600">
+                <div className="flex justify-between text-sm text-b60">
                   <span>Shipping</span>
                   <span>Calculated on WhatsApp</span>
                 </div>
               </div>
-              <div className="border-t pt-4 mb-6">
+              <div className="border-t border-b10 pt-4 mb-6">
                 <div className="flex justify-between">
                   <span>Total</span>
-                  <span>R{total.toFixed(2)}</span>
+                  <span className="font-mono">R{total.toFixed(2)}</span>
                 </div>
               </div>
-              <Button
+              <button
                 onClick={handleWhatsAppCheckout}
-                className="w-full py-6 bg-green-600 hover:bg-green-700"
+                className="cta w-full"
               >
-                <MessageCircle className="w-5 h-5 mr-2" />
+                <MessageCircle className="w-5 h-5" />
                 Checkout on WhatsApp
-              </Button>
-              <p className="text-xs text-gray-500 text-center mt-4">
+              </button>
+              <p className="micro text-b60 text-center mt-4 text-xs">
                 Click to send your order via WhatsApp
               </p>
             </div>

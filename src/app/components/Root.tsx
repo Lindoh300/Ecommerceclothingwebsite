@@ -2,10 +2,12 @@ import { Outlet } from "react-router";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { Toaster } from "./ui/sonner";
+import { GooFilters } from "./prism/GooFilters";
 
 export function Root() {
   return (
     <div className="min-h-screen flex flex-col">
+      <GooFilters />
       <Header />
       <main className="flex-1">
         <Outlet />
