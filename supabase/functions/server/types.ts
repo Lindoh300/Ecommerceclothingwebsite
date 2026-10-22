@@ -48,8 +48,64 @@ export interface KvLike {
   getByPrefix(p: string): Promise<any[]>;
 }
 
+export interface OrderItemInput {
+  productId: string;
+  size?: string;
+  color?: string;
+  quantity: number;
+}
+
+export interface Customer {
+  name: string;
+  phone: string;
+  note?: string;
+}
+
+export interface OrderLine {
+  productId: string;
+  name: string;
+  price: number;
+  size?: string;
+  color?: string;
+  quantity: number;
+  subtotal: number;
+}
+
+export type OrderStatus = 'pending' | 'cancelled';
+
+export interface Order {
+  id: string;
+  ref: string;
+  createdAt: string;
+  status: OrderStatus;
+  lines: OrderLine[];
+  total: number;
+  customer: Customer;
+}
+
+export interface StockShortfall {
+  productId: string;
+  name: string;
+  requested: number;
+  available: number;
+}
+
+export type PlaceOrderResult =
+  | { ok: true; created: boolean; order: Order }
+  | { ok: false; reason: 'missing'; missing: string[] }
+  | { ok: false; reason: 'stock'; short: StockShortfall[] };
+
+export interface OrderStore {
+  place(id: string, items: OrderItemInput[], customer: Customer): Promise<PlaceOrderResult>;
+  /** Newest first. */
+  list(): Promise<Order[]>;
+  /** null = not found. Already-cancelled returns the order unchanged and does not restore stock again. */
+  cancel(id: string): Promise<Order | null>;
+}
+
 export interface Deps {
   kv: KvLike;
+  orders: OrderStore;
   isAdmin(authHeader: string | null): Promise<'ok' | 'unauthenticated' | 'forbidden'>;
   uploadImage(file: File): Promise<string>;
 }

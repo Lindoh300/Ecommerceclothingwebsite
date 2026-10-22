@@ -1,4 +1,4 @@
-import type { CartQuoteRequest, Category, ProductInput } from './types.ts';
+import type { CartQuoteRequest, Category, Customer, OrderItemInput, ProductInput } from './types.ts';
 
 const CATEGORIES: Category[] = ['tshirts', 'jerseys', 'shorts', 'pants', 'accessories'];
 
@@ -133,4 +133,65 @@ export function validateQuote(body: unknown): Result<CartQuoteRequest> {
     items.push(item);
   }
   return { ok: true, value: { items } };
+}
+
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function validateOrder(
+  body: unknown,
+): Result<{ id: string; items: OrderItemInput[]; customer: Customer }> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  if (typeof body.id !== 'string' || !UUID_RE.test(body.id)) {
+    return { ok: false, error: 'id must be a UUID' };
+  }
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 20) {
+    return { ok: false, error: 'items must contain 1 to 20 entries' };
+  }
+  const items: OrderItemInput[] = [];
+  for (const it of body.items) {
+    if (!isRecord(it) || typeof it.productId !== 'string' || it.productId === '') {
+      return { ok: false, error: 'each item needs a string productId' };
+    }
+    if (it.productId.length > 64) {
+      return { ok: false, error: 'productId must be up to 64 characters' };
+    }
+    const q = it.quantity;
+    if (typeof q !== 'number' || !Number.isInteger(q) || q < 1 || q > 50) {
+      return { ok: false, error: 'quantity must be an integer from 1 to 50' };
+    }
+    const item: OrderItemInput = { productId: it.productId, quantity: q };
+    if (it.size !== undefined) {
+      if (typeof it.size !== 'string') return { ok: false, error: 'size must be a string' };
+      if (it.size.length > 40) return { ok: false, error: 'size must be up to 40 characters' };
+      item.size = it.size;
+    }
+    if (it.color !== undefined) {
+      if (typeof it.color !== 'string') return { ok: false, error: 'color must be a string' };
+      if (it.color.length > 40) return { ok: false, error: 'color must be up to 40 characters' };
+      item.color = it.color;
+    }
+    items.push(item);
+  }
+
+  if (!isRecord(body.customer)) return { ok: false, error: 'customer must be an object' };
+  const c = body.customer;
+  const name = typeof c.name === 'string' ? c.name.trim() : '';
+  if (name.length < 1 || name.length > 80) {
+    return { ok: false, error: 'customer name must be 1 to 80 characters' };
+  }
+  const phone = typeof c.phone === 'string' ? c.phone.trim() : '';
+  if (
+    phone.length < 7 || phone.length > 20 || !/^[0-9 +\-()]+$/.test(phone) ||
+    phone.replace(/\D/g, '').length < 7
+  ) {
+    return { ok: false, error: 'customer phone must be 7 to 20 characters with at least 7 digits' };
+  }
+  const customer: Customer = { name, phone };
+  if (c.note !== undefined) {
+    if (typeof c.note !== 'string') return { ok: false, error: 'customer note must be a string' };
+    const note = c.note.trim();
+    if (note.length > 500) return { ok: false, error: 'customer note must be up to 500 characters' };
+    if (note !== '') customer.note = note;
+  }
+  return { ok: true, value: { id: body.id, items, customer } };
 }

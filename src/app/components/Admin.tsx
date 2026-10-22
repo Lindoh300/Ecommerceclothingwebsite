@@ -12,6 +12,7 @@ import { ApiError } from "../api/client";
 import { createProduct, updateProduct, deleteProduct, uploadImage } from "../api/products";
 import type { Category, Product, ProductInput } from "../api/types";
 import { useProducts, loadProducts } from "../hooks/useProducts";
+import { AdminOrders } from "./AdminOrders";
 
 // Local dev server: no Supabase, but an API base. Writes use the dev-admin token.
 const devMode = !isSupabaseConfigured && !!import.meta.env.VITE_API_BASE;
@@ -640,6 +641,10 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-16">
+          <AdminOrders onApiError={handleApiError} />
         </div>
       </div>
     </div>

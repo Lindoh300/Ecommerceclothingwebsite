@@ -2,7 +2,7 @@ import { type Context, Hono } from 'npm:hono';
 import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
 import type { CartQuote, CartQuoteLine, Deps, Product } from './types.ts';
-import { validateProductInput, validateQuote } from './validation.ts';
+import { UUID_RE, validateOrder, validateProductInput, validateQuote } from './validation.ts';
 import { ensureSeeded } from './seed.ts';
 
 const PREFIX = '/make-server-fbb8f0e1';
@@ -20,7 +20,7 @@ export function createApp(deps: Deps): Hono {
     '/*',
     cors({
       origin: '*',
-      allowHeaders: ['Content-Type', 'Authorization'],
+      allowHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-client-info'],
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       exposeHeaders: ['Content-Length'],
       maxAge: 600,
@@ -159,6 +159,35 @@ export function createApp(deps: Deps): Hono {
     }
     const quote: CartQuote = { lines, total, missing };
     return c.json(quote);
+  });
+
+  app.post(`${PREFIX}/orders`, async (c) => {
+    const parsed = await readJson(c);
+    if (!parsed.ok) return c.json({ error: 'Malformed JSON' }, 400);
+    const v = validateOrder(parsed.body);
+    if (!v.ok) return c.json({ error: v.error }, 400);
+    const r = await deps.orders.place(v.value.id, v.value.items, v.value.customer);
+    if (!r.ok) {
+      if (r.reason === 'missing') return c.json({ error: 'Unknown products', missing: r.missing }, 400);
+      return c.json({ error: 'Insufficient stock', short: r.short }, 409);
+    }
+    return c.json(r.order, r.created ? 201 : 200);
+  });
+
+  app.get(`${PREFIX}/orders`, async (c) => {
+    const denied = await guard(c);
+    if (denied) return denied;
+    return c.json(await deps.orders.list());
+  });
+
+  app.post(`${PREFIX}/orders/:id/cancel`, async (c) => {
+    const denied = await guard(c);
+    if (denied) return denied;
+    const id = c.req.param('id');
+    if (!UUID_RE.test(id)) return c.json({ error: 'Order not found' }, 404);
+    const order = await deps.orders.cancel(id);
+    if (!order) return c.json({ error: 'Order not found' }, 404);
+    return c.json(order);
   });
 
   return app;

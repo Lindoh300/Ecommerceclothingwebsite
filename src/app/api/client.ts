@@ -2,11 +2,13 @@ import { supabase } from '../lib/supabase'
 
 export class ApiError extends Error {
   status: number
+  body?: unknown
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.body = body
   }
 }
 
@@ -69,13 +71,15 @@ export async function apiFetch<T>(path: string, opts: ApiOptions = {}): Promise<
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`
+    let errBody: unknown
     try {
       const data = await res.json()
+      errBody = data
       if (data && typeof data.error === 'string') message = data.error
     } catch {
       // non-JSON error body
     }
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, message, errBody)
   }
 
   if (res.status === 204) return undefined as T

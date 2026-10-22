@@ -32,11 +32,46 @@ export interface CartQuoteLine {
   color?: string
   quantity: number
   subtotal: number
-  available: boolean
+  available: number
 }
 
 export interface CartQuote {
   lines: CartQuoteLine[]
   total: number
   missing: string[]
+}
+
+export interface Customer {
+  name: string
+  phone: string
+  note?: string
+}
+
+export interface OrderLine {
+  productId: string
+  name: string
+  price: number
+  size?: string
+  color?: string
+  quantity: number
+  subtotal: number
+}
+
+export type OrderStatus = 'pending' | 'cancelled'
+
+export interface Order {
+  id: string
+  ref: string
+  createdAt: string
+  status: OrderStatus
+  lines: OrderLine[]
+  total: number
+  customer: Customer
+}
+
+export interface StockShortfall {
+  productId: string
+  name: string
+  requested: number
+  available: number
 }

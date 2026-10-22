@@ -1,18 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { getCart, removeFromCart, updateCartItem, clearCart, getCartQuantityForProduct, getAvailableStock } from "../utils/storage";
-import { Trash2, MessageCircle } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ProductImage } from "./prism/ProductImage";
-import { whatsappLink } from "../config/shop";
+import { CheckoutPanel } from "./CheckoutPanel";
 import { useProducts } from "../hooks/useProducts";
 import { quoteCart } from "../api/products";
 import type { CartQuote } from "../api/types";
 
 export function Cart() {
   const [lines, setLines] = useState(getCart());
-  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
-  const { products, loading: productsLoading, error: productsError } = useProducts();
+  const { products, loading: productsLoading, error: productsError, reload } = useProducts();
+  const [orderPlaced, setOrderPlaced] = useState(false);
   const [quote, setQuote] = useState<CartQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -88,47 +88,10 @@ export function Cart() {
     window.dispatchEvent(new Event('cartUpdated'));
   };
 
-  const handleWhatsAppCheckout = () => {
-    if (lines.length === 0) return;
-    if (!quote || quoting) {
-      toast.error('Please wait for prices to update');
-      return;
-    }
-    if (quote.missing.length > 0 || hasUnavailable) {
-      toast.error('Remove unavailable items first');
-      return;
-    }
-
-    let message = "Hi! I'd like to place an order:\n\n";
-
-    quote.lines.forEach((line, index) => {
-      message += `${index + 1}. ${line.name}\n`;
-      message += `   - Price: R${line.price}\n`;
-      message += `   - Quantity: ${line.quantity}\n`;
-      if (line.size) message += `   - Size: ${line.size}\n`;
-      if (line.color) message += `   - Color: ${line.color}\n`;
-      message += `   - Subtotal: R${line.subtotal}\n`;
-      if (line.image && line.image.startsWith('http')) {
-        message += `   - Image: ${line.image}\n`;
-      }
-      message += `\n`;
-    });
-
-    message += `Total: R${quote.total.toFixed(2)}`;
-
-    window.open(whatsappLink(message), '_blank');
-
-    setAwaitingConfirm(true);
-  };
-
-  const handleConfirmSent = () => {
+  const handleCartCleared = () => {
     clearCart();
     refreshCart();
     window.dispatchEvent(new Event('cartUpdated'));
-    setAwaitingConfirm(false);
-    toast.success('Order sent', {
-      description: 'Thanks! We will reply on WhatsApp.'
-    });
   };
 
   if (lines.length === 0) {
@@ -153,6 +116,9 @@ export function Cart() {
         <div className="grid lg:grid-cols-3 gap-10 lg:gap-16">
           {/* Cart Items */}
           <div className="lg:col-span-2">
+            {orderPlaced && (
+              <p className="micro text-b60 mb-4">Order saved. Your cart is locked until you confirm it was sent.</p>
+            )}
             <div className="border-t border-b10">
               {lines.map((item, index) => {
                 const product = productsById.get(item.productId);
@@ -178,7 +144,8 @@ export function Cart() {
                   <div className="flex flex-col items-end justify-between">
                     <button
                       onClick={() => handleRemove(index)}
-                      className="text-b60 hover:text-prism transition-colors"
+                      disabled={orderPlaced}
+                      className="text-b60 hover:text-prism transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       aria-label="Remove item"
                     >
                       <Trash2 className="w-5 h-5" />
@@ -186,14 +153,15 @@ export function Cart() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity - 1)}
-                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors"
+                        disabled={orderPlaced}
+                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         -
                       </button>
                       <span className="w-8 text-center font-mono">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
-                        disabled={unavailable || getCartQuantityForProduct(item.productId) >= getAvailableStock(item.productId, product?.stock ?? 0)}
+                        disabled={orderPlaced || unavailable || getCartQuantityForProduct(item.productId) >= getAvailableStock(item.productId, product?.stock ?? 0)}
                         className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         +
@@ -235,33 +203,13 @@ export function Cart() {
                   </div>
                 )}
               </div>
-              <button
-                onClick={handleWhatsAppCheckout}
-                disabled={quoting || hasUnavailable || (quote?.missing.length ?? 0) > 0}
-                className="cta w-full"
-              >
-                <MessageCircle className="w-5 h-5" />
-                {awaitingConfirm ? "Open WhatsApp again" : "Checkout on WhatsApp"}
-              </button>
-              {awaitingConfirm && (
-                <div className="border border-b10 p-4 mt-4">
-                  <p className="micro text-b60 mb-2">Did you send your order?</p>
-                  <p className="text-b60 text-sm mb-4">
-                    Your cart is kept until you confirm, in case WhatsApp didn't send.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-4">
-                    <button onClick={handleConfirmSent} className="cta">
-                      Yes, clear cart
-                    </button>
-                    <button onClick={() => setAwaitingConfirm(false)} className="linkr">
-                      Not yet
-                    </button>
-                  </div>
-                </div>
-              )}
-              <p className="micro text-b60 text-center mt-4 text-xs">
-                Opens WhatsApp with your order. Your cart stays until you confirm.
-              </p>
+              <CheckoutPanel
+                items={JSON.parse(linesKey)}
+                blocked={!quote || quoting || hasUnavailable || quote.missing.length > 0}
+                onStockShort={() => { reload().catch(() => {}); }}
+                onCartCleared={handleCartCleared}
+                onOrderChange={setOrderPlaced}
+              />
             </div>
           </div>
         </div>

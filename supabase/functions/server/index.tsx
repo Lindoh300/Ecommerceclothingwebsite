@@ -1,7 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2.49.8';
 import * as kv from './kv_store.tsx';
 import { createApp } from './app.ts';
-import type { Deps } from './types.ts';
+import type { Deps, Order, OrderStore, PlaceOrderResult } from './types.ts';
 
 function requireEnv(name: string): string {
   const v = Deno.env.get(name);
@@ -19,8 +19,42 @@ const EXT: Record<string, string> = {
 
 const client = () => createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'));
 
+// Orders and stock changes are done by the place_order / cancel_order Postgres
+// functions (see supabase/migrations/20261022000000_orders.sql), which lock the
+// product rows so stock cannot be oversold.
+const orders: OrderStore = {
+  async place(id, items, customer) {
+    const { data, error } = await client().rpc('place_order', {
+      p_id: id,
+      p_items: items,
+      p_customer: customer,
+    });
+    if (error) throw new Error(error.message);
+    return data as PlaceOrderResult;
+  },
+  async list() {
+    const { data, error } = await client().from('orders').select('*').order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r): Order => ({
+      id: r.id,
+      ref: r.ref,
+      createdAt: r.created_at,
+      status: r.status,
+      lines: r.lines,
+      total: Number(r.total),
+      customer: r.customer,
+    }));
+  },
+  async cancel(id) {
+    const { data, error } = await client().rpc('cancel_order', { p_id: id });
+    if (error) throw new Error(error.message);
+    return (data as Order | null) ?? null;
+  },
+};
+
 const deps: Deps = {
   kv,
+  orders,
   async isAdmin(authHeader) {
     const m = authHeader?.match(/^Bearer\s+(.+)$/i);
     if (!m) return 'unauthenticated';
