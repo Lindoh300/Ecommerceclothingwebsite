@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { Facebook, Instagram } from "lucide-react";
+import { shop } from "../config/shop";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -46,28 +47,27 @@ export function Footer() {
               <ul className="space-y-2">
                 <li><Link to="/about" className="text-sm uppercase hover:text-prism transition-colors">Our Story</Link></li>
                 <li><Link to="/about" className="text-sm uppercase hover:text-prism transition-colors">Sustainability</Link></li>
-                <li><Link to="/admin" className="text-sm uppercase hover:text-prism transition-colors">Admin</Link></li>
               </ul>
             </div>
 
             <div>
               <h3 className="micro mb-4 text-b60">Follow Us</h3>
               <div className="flex gap-4">
-                <a href="https://www.tiktok.com/@4nguru" target="_blank" rel="noopener noreferrer" aria-label="TikTok" className="transition-colors hover:text-prism">
+                <a href={shop.social.tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok" className="transition-colors hover:text-prism">
                   <svg className="h-6 w-6 fill-current" viewBox="0 0 24 24">
                     <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1.04-.1z" />
                   </svg>
                 </a>
-                <a href="https://www.instagram.com/4nguruthebrand" target="_blank" rel="noopener noreferrer" aria-label="Instagram" className="transition-colors hover:text-prism">
+                <a href={shop.social.instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram" className="transition-colors hover:text-prism">
                   <Instagram className="h-6 w-6" />
                 </a>
-                <a href="https://www.facebook.com/p/4nguru-The-Brand-100063554708976/" target="_blank" rel="noopener noreferrer" aria-label="Facebook" className="transition-colors hover:text-prism">
+                <a href={shop.social.facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook" className="transition-colors hover:text-prism">
                   <Facebook className="h-6 w-6" />
                 </a>
               </div>
               <div className="mt-4 space-y-1 font-mono text-sm break-words">
-                <p>Email: malandela03@gmail.com</p>
-                <p>WhatsApp: +27 67 868 4428</p>
+                <p>Email: {shop.email}</p>
+                <p>WhatsApp: {shop.phone}</p>
               </div>
             </div>
           </div>

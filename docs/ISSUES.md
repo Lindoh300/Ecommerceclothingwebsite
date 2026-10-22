@@ -15,6 +15,8 @@ Issues found during a review of the codebase. They are ordered by severity, most
 | 9 | [Many unused dependencies and UI components](#9-many-unused-dependencies-and-ui-components) | Low |
 | 10 | [Admin delete button throws an error](#10-admin-delete-button-throws-an-error) | High |
 
+**Status:** Fixed: #8 (P1.2), #9 (P1.6), #10 (P1.0). Partly addressed: #2 (P1.1), #5 (P1.3), #6 (P1.4). Open: the rest. See [ROADMAP.md](ROADMAP.md).
+
 ---
 
 ## 1. Product data is per-browser, not shared
@@ -44,6 +46,8 @@ The catalog lives only in the visitor's `localStorage` under the key `clothing_s
 **Impact:** Today the damage is limited, because admin changes only affect the admin's own browser (#1). Once products are stored on a server, though, this would let anyone change the live catalog.
 
 **Suggested fix:** Use real server-side authentication, such as Supabase Auth. Check permissions on the server for every write. Remove the on-screen password hint and the public footer link.
+
+**Status:** Partly addressed by P1.1; the rest is in P2.3.
 
 ---
 
@@ -84,6 +88,8 @@ Stock is displayed, and the quantity picker on the product page won't go above i
 
 **Suggested fix:** Check stock against the cart's total quantity in `addToCart` and `updateCartItem`. Once orders are stored on a server (#6), reduce stock there when an order is placed.
 
+**Status:** Partly addressed by P1.3; the rest is in P3.2.
+
 ---
 
 ## 6. No payment or order record at checkout
@@ -98,6 +104,8 @@ Checkout opens a WhatsApp chat with a pre-written order message and then immedia
 - Prices in the message come from the customer's browser, so they can be edited (see #1).
 
 **Suggested fix:** At a minimum, keep the cart until the customer confirms they sent the message. For a proper store, save orders on the server and add a South African payment gateway such as PayFast, Yoco or Paystack.
+
+**Status:** Partly addressed by P1.4; the rest is in P3.1 and P3.3.
 
 ---
 
@@ -121,6 +129,8 @@ A Supabase Edge Function (Deno + Hono) and a key-value store were generated, but
 
 **Suggested fix:** Move shop details into one config module, such as `src/app/config/shop.ts`, and import it wherever they're needed.
 
+**Status:** Fixed in P1.2.
+
 ---
 
 ## 9. Many unused dependencies and UI components
@@ -133,6 +143,8 @@ The Figma Make template installs many packages that the app code never imports, 
 
 **Suggested fix:** Remove the unused packages and `ui/` components. Run `npm run build` afterwards to confirm nothing breaks.
 
+**Status:** Fixed in P1.6.
+
 ---
 
 ## 10. Admin delete button throws an error
@@ -144,3 +156,5 @@ The delete button calls `handleDelete(product.id, product.name)`, but `handleDel
 **Impact:** Clicking delete throws a `ReferenceError` and the product is not removed. Products cannot be deleted from the admin panel.
 
 **Suggested fix:** Add a `handleDelete(id, name)` function to `Admin.tsx`. It should ask for confirmation with `window.confirm`, call `deleteProduct(id)`, refresh the product list, and show a `toast` from `sonner`.
+
+**Status:** Fixed in P1.0.

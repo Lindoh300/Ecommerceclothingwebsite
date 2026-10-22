@@ -126,6 +126,16 @@ export function Admin() {
     });
   };
 
+  const handleDelete = (id: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    deleteProduct(id);
+    if (editing === id) {
+      handleCancel();
+    }
+    refreshProducts();
+    toast.success(`Deleted ${name}`);
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordInput === ADMIN_PASSWORD) {
@@ -170,9 +180,6 @@ export function Admin() {
               Login
             </Button>
           </form>
-          <p className="text-xs text-b60 text-center mt-4">
-            Default password: admin123
-          </p>
         </div>
       </div>
     );

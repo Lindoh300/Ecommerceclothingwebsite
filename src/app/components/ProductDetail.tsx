@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router";
 import { useState } from "react";
-import { getProductById, addToCart } from "../utils/storage";
+import { getProductById, addToCart, getCartQuantityForProduct } from "../utils/storage";
 import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { ProductImage } from "./prism/ProductImage";
@@ -50,7 +50,16 @@ export function ProductDetail() {
       return;
     }
 
-    addToCart(product, quantity, selectedSize || product.sizes[0], selectedColor || product.colors[0]);
+    const added = addToCart(product, quantity, selectedSize || product.sizes[0], selectedColor || product.colors[0]);
+    if (!added) {
+      const inCart = getCartQuantityForProduct(product.id);
+      toast.error('Not enough stock', {
+        description: inCart > 0
+          ? `Only ${product.stock} available and you already have ${inCart} in your cart.`
+          : `Only ${product.stock} available.`
+      });
+      return;
+    }
     window.dispatchEvent(new Event('cartUpdated'));
     toast.success('Added to cart!', {
       description: `${quantity} × ${product.name}`

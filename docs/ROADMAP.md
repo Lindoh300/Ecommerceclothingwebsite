@@ -45,17 +45,17 @@ This roadmap lists the planned work for the 4Nguru storefront, grouped into phas
 
 ---
 
-## Phase 1: Quick wins, no backend (⬜)
+## Phase 1: Quick wins, no backend (🚧)
 
 | ID | Item | Issue | Size | Depends on | Status |
 |----|------|-------|------|------------|--------|
-| P1.0 | Fix the admin delete button | [#10](ISSUES.md#10-admin-delete-button-throws-an-error) | S | | ⬜ |
-| P1.1 | Remove the on-screen admin password hint and the public footer `/admin` link | [#2](ISSUES.md#2-admin-authentication-is-not-secure) (partial) | S | | ⬜ |
-| P1.2 | Central shop config module `src/app/config/shop.ts` for the WhatsApp number, phone, email and socials | [#8](ISSUES.md#8-contact-details-are-hardcoded-in-several-places) | S | | ⬜ |
-| P1.3 | Client-side stock enforcement in `addToCart` and `updateCartItem` against total cart quantity; cart +/- capped at stock | [#5](ISSUES.md#5-stock-is-never-decremented-or-enforced) (partial) | S | | ⬜ |
-| P1.4 | Keep the cart after WhatsApp checkout until the customer confirms they sent the message | [#6](ISSUES.md#6-no-payment-or-order-record-at-checkout) (partial) | S | | ⬜ |
+| P1.0 | Fix the admin delete button | [#10](ISSUES.md#10-admin-delete-button-throws-an-error) | S | | ✅ |
+| P1.1 | Remove the on-screen admin password hint and the public footer `/admin` link | [#2](ISSUES.md#2-admin-authentication-is-not-secure) (partial) | S | | ✅ |
+| P1.2 | Central shop config module `src/app/config/shop.ts` for the WhatsApp number, phone, email and socials | [#8](ISSUES.md#8-contact-details-are-hardcoded-in-several-places) | S | | ✅ |
+| P1.3 | Client-side stock enforcement in `addToCart` and `updateCartItem` against total cart quantity; cart +/- capped at stock | [#5](ISSUES.md#5-stock-is-never-decremented-or-enforced) (partial) | S | | ✅ |
+| P1.4 | Keep the cart after WhatsApp checkout until the customer confirms they sent the message | [#6](ISSUES.md#6-no-payment-or-order-record-at-checkout) (partial) | S | | ✅ |
 | P1.5 | Real product and logo images, or point the sample products at existing images | [#4](ISSUES.md#4-product-and-logo-images-are-missing) | M | Owner supplies photos | ⬜ |
-| P1.6 | Remove unused dependencies and shadcn/ui components, verified by build | [#9](ISSUES.md#9-many-unused-dependencies-and-ui-components) | S | | ⬜ |
+| P1.6 | Remove unused dependencies and shadcn/ui components, verified by build | [#9](ISSUES.md#9-many-unused-dependencies-and-ui-components) | S | | ✅ |
 
 ### P1.0 Fix the admin delete button
 
@@ -64,10 +64,10 @@ This roadmap lists the planned work for the 4Nguru storefront, grouped into phas
 **Files:** `src/app/components/Admin.tsx`
 
 **Acceptance criteria:**
-- [ ] Clicking delete in `/admin` no longer throws a `ReferenceError`.
-- [ ] Confirming the prompt removes the product from the list and from `localStorage`.
-- [ ] Cancelling the prompt leaves the product in place.
-- [ ] A toast confirms the deletion.
+- [x] Clicking delete in `/admin` no longer throws a `ReferenceError`.
+- [x] Confirming the prompt removes the product from the list and from `localStorage`.
+- [x] Cancelling the prompt leaves the product in place.
+- [x] A toast confirms the deletion.
 
 ### P1.1 Remove the admin password hint and public admin link
 
@@ -76,9 +76,9 @@ This roadmap lists the planned work for the 4Nguru storefront, grouped into phas
 **Files:** `src/app/components/Admin.tsx`, `src/app/components/Footer.tsx`
 
 **Acceptance criteria:**
-- [ ] The login page no longer shows any password text.
-- [ ] The footer has no link to `/admin`.
-- [ ] `/admin` still loads when typed directly.
+- [x] The login page no longer shows any password text.
+- [x] The footer has no link to `/admin`.
+- [x] `/admin` still loads when typed directly.
 
 ### P1.2 Central shop config
 
@@ -87,9 +87,9 @@ This roadmap lists the planned work for the 4Nguru storefront, grouped into phas
 **Files:** `src/app/config/shop.ts` (new), `Cart.tsx`, `CustomerService.tsx`, `Footer.tsx`, `About.tsx`
 
 **Acceptance criteria:**
-- [ ] `shop.ts` is the only place a contact number, email or social URL is written.
-- [ ] Changing the WhatsApp number in `shop.ts` changes the checkout link.
-- [ ] Each page shows the same details as before.
+- [x] `shop.ts` is the only place a contact number, email or social URL is written.
+- [x] Changing the WhatsApp number in `shop.ts` changes the checkout link.
+- [x] Each page shows the same details as before.
 
 ### P1.3 Stock enforcement in the cart
 
@@ -98,9 +98,9 @@ This roadmap lists the planned work for the 4Nguru storefront, grouped into phas
 **Files:** `src/app/utils/storage.ts`, `src/app/components/ProductDetail.tsx`, `src/app/components/Cart.tsx`
 
 **Acceptance criteria:**
-- [ ] Adding the same product repeatedly stops at its stock level.
-- [ ] The cart +/- buttons cannot go above stock.
-- [ ] The UI shows a toast when a limit blocks an action.
+- [x] Adding the same product repeatedly stops at its stock level.
+- [x] The cart +/- buttons cannot go above stock.
+- [x] The UI shows a toast when a limit blocks an action.
 
 ### P1.4 Keep the cart until the customer confirms
 
@@ -109,13 +109,15 @@ This roadmap lists the planned work for the 4Nguru storefront, grouped into phas
 **Files:** `src/app/components/Cart.tsx`
 
 **Acceptance criteria:**
-- [ ] Opening WhatsApp from the cart does not empty the cart.
-- [ ] The cart is cleared only after the customer confirms.
-- [ ] Closing WhatsApp without sending leaves the cart intact.
+- [x] Opening WhatsApp from the cart does not empty the cart.
+- [x] The cart is cleared only after the customer confirms.
+- [x] Closing WhatsApp without sending leaves the cart intact.
 
 ### P1.5 Real product and logo images
 
 **What to do:** Add the owner's photos and logo under `public/images/`. Alternatively, point the sample products at images that already exist. Requires photos from the owner.
+
+Waiting on photos from the owner.
 
 **Files:** `public/images/`, `src/app/utils/storage.ts` (sample image paths), `src/app/components/Header.tsx` (logo path)
 
@@ -131,9 +133,9 @@ This roadmap lists the planned work for the 4Nguru storefront, grouped into phas
 **Files:** `package.json`, `src/app/components/ui/`
 
 **Acceptance criteria:**
-- [ ] `npm run build` passes after the removals.
-- [ ] Each removed package is not imported anywhere in `src/`.
-- [ ] Every remaining `ui/` file is imported by something.
+- [x] `npm run build` passes after the removals.
+- [x] Each removed package is not imported anywhere in `src/`.
+- [x] Every remaining `ui/` file is imported by something.
 
 ---
 

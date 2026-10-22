@@ -138,7 +138,29 @@ export const getCart = (): CartItem[] => {
   return stored ? JSON.parse(stored) : [];
 };
 
-export const addToCart = (product: Product, quantity: number = 1, size?: string, color?: string): void => {
+// Total quantity of one product across all of its cart lines (all sizes and colours).
+// Pass excludeIndex to leave out one line, e.g. when that line is being changed.
+export const getCartQuantityForProduct = (productId: string, excludeIndex?: number): number => {
+  return getCart().reduce(
+    (total, item, index) => (item.id === productId && index !== excludeIndex ? total + item.quantity : total),
+    0
+  );
+};
+
+// Current stock from the product list, or the fallback (stored on the cart line) if the product is gone.
+export const getAvailableStock = (productId: string, fallback = 0): number => {
+  return getProductById(productId)?.stock ?? fallback;
+};
+
+// Returns false, and leaves the cart unchanged, if the total would exceed stock.
+// Worked check: stock 3, cart holds 2 of size M.
+//   addToCart(p, 2, 'L') -> 2 + 2 = 4 > 3, returns false.
+//   addToCart(p, 1, 'L') -> 2 + 1 = 3, not > 3, returns true.
+export const addToCart = (product: Product, quantity: number = 1, size?: string, color?: string): boolean => {
+  if (getCartQuantityForProduct(product.id) + quantity > getAvailableStock(product.id, product.stock)) {
+    return false;
+  }
+
   const cart = getCart();
   const existingIndex = cart.findIndex(
     item => item.id === product.id && item.selectedSize === size && item.selectedColor === color
@@ -159,14 +181,19 @@ export const addToCart = (product: Product, quantity: number = 1, size?: string,
     }
     throw e;
   }
+  return true;
 };
 
-export const updateCartItem = (index: number, quantity: number): void => {
+export const updateCartItem = (index: number, quantity: number): boolean => {
   const cart = getCart();
-  if (cart[index]) {
-    cart[index].quantity = quantity;
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  const item = cart[index];
+  if (!item) return false;
+  if (getCartQuantityForProduct(item.id, index) + quantity > getAvailableStock(item.id, item.stock)) {
+    return false;
   }
+  cart[index].quantity = quantity;
+  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  return true;
 };
 
 export const removeFromCart = (index: number): void => {

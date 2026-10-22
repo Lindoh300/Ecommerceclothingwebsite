@@ -39,10 +39,12 @@ src/
       Home.tsx, CategoryPage.tsx, ProductDetail.tsx, Cart.tsx,
       Admin.tsx, About.tsx, CustomerService.tsx, NotFound.tsx
       Header.tsx, Footer.tsx, ProductCard.tsx
-      ui/                     shadcn/ui primitives (do not hand-edit unless needed)
+      ui/                     shadcn/ui primitives in use (button, input, label, textarea, select, sonner); add others with the shadcn CLI only when needed
       prism/                  Prism design-system components
+    config/
+      shop.ts                 shop name, contact details, social links, whatsappLink()
     utils/
-      storage.ts              products and cart in localStorage, cart helpers
+      storage.ts              products and cart in localStorage, cart helpers, stock helpers
   styles/
     index.css                 imports fonts.css, tailwind.css, theme.css and prism.css
     theme.css                 design tokens
@@ -59,7 +61,9 @@ public/images/                static images (product and logo images are missing
 - **Products** are read and written through `src/app/utils/storage.ts`. Sample products are seeded into `localStorage` under `clothing_store_products` the first time a browser loads the site. Admin edits in `/admin` only change that browser's copy (see [#1](docs/ISSUES.md#1-product-data-is-per-browser-not-shared)).
 - **Cart** is stored in `localStorage` under `clothing_store_cart` through the same module. Each cart item copies the whole product object (see [#3](docs/ISSUES.md#3-uploaded-images-can-exhaust-localstorage)).
 - **Cart change event:** `addToCart` in `storage.ts` dispatches a `cartUpdated` window event, as do the components that change the cart: `Cart.tsx` and `ProductDetail.tsx`. `Header.tsx` listens for `cartUpdated` to refresh the cart badge. When you change the cart in a new place, dispatch this event too.
-- **Checkout** is in `handleWhatsAppCheckout` in `Cart.tsx`. It builds the order text, opens WhatsApp, and clears the cart (see [#6](docs/ISSUES.md#6-no-payment-or-order-record-at-checkout)).
+- **Checkout** is in `handleWhatsAppCheckout` in `Cart.tsx`. It builds the order text and opens WhatsApp. The cart is not cleared until the customer confirms in the "Did you send your order?" panel (see [#6](docs/ISSUES.md#6-no-payment-or-order-record-at-checkout)).
+- **Stock** is enforced client-side only. `getCartQuantityForProduct(productId, excludeIndex?)` counts a product's quantity across all sizes and colours in the cart, and `getAvailableStock(productId, fallback)` returns its stock. `addToCart` and `updateCartItem` return `boolean` and refuse to go over stock, so callers must handle `false` with a toast. Stock is still never decremented (see [#5](docs/ISSUES.md#5-stock-is-never-decremented-or-enforced)).
+- **Contact details** (WhatsApp number, phone, email, social links) live only in `src/app/config/shop.ts`. Import them from there (see [#8](docs/ISSUES.md#8-contact-details-are-hardcoded-in-several-places)).
 - **Admin** is at `/admin`. The password check is client-side and the session flag is in `sessionStorage` (see [#2](docs/ISSUES.md#2-admin-authentication-is-not-secure)). Do not build new features on it.
 - **Supabase** has a scaffolded edge function with a single `/health` route. Nothing in `src/` calls it yet (see [#7](docs/ISSUES.md#7-supabase-backend-is-scaffolded-but-unused)).
 
@@ -97,6 +101,7 @@ The Prism design system is in place, and every page uses it. The rules below are
   - Check `docs/ISSUES.md` before you start on a known problem, and link to it in commit messages or PRs.
 - Do not commit secrets. The Supabase anon key in `info.tsx` is public by design; service keys are not.
 - Do not add new public routes or links to `/admin`.
+- Never hardcode contact details; import from `src/app/config/shop.ts`.
 
 ## Testing and verification
 

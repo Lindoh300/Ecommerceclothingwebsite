@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
-import { getCart, removeFromCart, updateCartItem, getCartTotal, clearCart } from "../utils/storage";
+import { getCart, removeFromCart, updateCartItem, getCartTotal, clearCart, getCartQuantityForProduct, getAvailableStock } from "../utils/storage";
 import { Trash2, MessageCircle } from "lucide-react";
+import { toast } from "sonner";
 import { ProductImage } from "./prism/ProductImage";
+import { whatsappLink } from "../config/shop";
 
 export function Cart() {
   const [cart, setCart] = useState(getCart());
   const [total, setTotal] = useState(getCartTotal());
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 
   const refreshCart = () => {
     setCart(getCart());
@@ -19,7 +22,15 @@ export function Cart() {
 
   const handleUpdateQuantity = (index: number, quantity: number) => {
     if (quantity < 1) return;
-    updateCartItem(index, quantity);
+    const updated = updateCartItem(index, quantity);
+    if (!updated) {
+      const item = cart[index];
+      const available = getAvailableStock(item.id, item.stock);
+      toast.error('Not enough stock', {
+        description: `Only ${available} available.`
+      });
+      return;
+    }
     refreshCart();
     window.dispatchEvent(new Event('cartUpdated'));
   };
@@ -54,13 +65,19 @@ export function Cart() {
 
     message += `Total: R${total.toFixed(2)}`;
 
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappNumber = "27678684428"; // 4Nguru The Brand Online WhatsApp
-    window.open(`https://wa.me/${whatsappNumber}?text=${encodedMessage}`, '_blank');
+    window.open(whatsappLink(message), '_blank');
 
+    setAwaitingConfirm(true);
+  };
+
+  const handleConfirmSent = () => {
     clearCart();
     refreshCart();
     window.dispatchEvent(new Event('cartUpdated'));
+    setAwaitingConfirm(false);
+    toast.success('Order sent', {
+      description: 'Thanks! We will reply on WhatsApp.'
+    });
   };
 
   if (cart.length === 0) {
@@ -118,7 +135,8 @@ export function Cart() {
                       <span className="w-8 text-center font-mono">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
-                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors"
+                        disabled={getCartQuantityForProduct(item.id) >= getAvailableStock(item.id, item.stock)}
+                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         +
                       </button>
@@ -154,10 +172,26 @@ export function Cart() {
                 className="cta w-full"
               >
                 <MessageCircle className="w-5 h-5" />
-                Checkout on WhatsApp
+                {awaitingConfirm ? "Open WhatsApp again" : "Checkout on WhatsApp"}
               </button>
+              {awaitingConfirm && (
+                <div className="border border-b10 p-4 mt-4">
+                  <p className="micro text-b60 mb-2">Did you send your order?</p>
+                  <p className="text-b60 text-sm mb-4">
+                    Your cart is kept until you confirm, in case WhatsApp didn't send.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <button onClick={handleConfirmSent} className="cta">
+                      Yes, clear cart
+                    </button>
+                    <button onClick={() => setAwaitingConfirm(false)} className="linkr">
+                      Not yet
+                    </button>
+                  </div>
+                </div>
+              )}
               <p className="micro text-b60 text-center mt-4 text-xs">
-                Click to send your order via WhatsApp
+                Opens WhatsApp with your order. Your cart stays until you confirm.
               </p>
             </div>
           </div>

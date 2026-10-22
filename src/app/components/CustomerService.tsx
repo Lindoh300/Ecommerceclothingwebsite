@@ -1,20 +1,21 @@
 import { HelpCircle, Truck, RefreshCcw, Ruler, Mail, Phone, MessageSquare, Facebook, Instagram } from "lucide-react";
+import { shop, whatsappLink } from "../config/shop";
 
 export function CustomerService() {
   const contactMethods = [
     {
       title: "Phone",
-      detail: "+27 67 868 4428",
+      detail: shop.phone,
       icon: <Phone className="w-6 h-6 text-ink" />
     },
     {
       title: "WhatsApp",
-      detail: "+27 67 868 4428",
+      detail: shop.phone,
       icon: <MessageSquare className="w-6 h-6 text-ink" />
     },
     {
       title: "Email",
-      detail: "malandela03@gmail.com",
+      detail: shop.email,
       icon: <Mail className="w-6 h-6 text-ink" />
     }
   ];
@@ -39,15 +40,15 @@ export function CustomerService() {
           <div className="pt-8 border-t border-b10">
             <p className="micro text-b60 mb-4">Follow Us</p>
             <div className="flex gap-6">
-              <a href="https://www.tiktok.com/@4nguru" target="_blank" rel="noopener noreferrer" className="text-ink hover:text-prism transition-colors">
+              <a href={shop.social.tiktok} target="_blank" rel="noopener noreferrer" className="text-ink hover:text-prism transition-colors">
                 <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
                   <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1.04-.1z" />
                 </svg>
               </a>
-              <a href="https://www.instagram.com/4nguruthebrand" target="_blank" rel="noopener noreferrer" className="text-ink hover:text-prism transition-colors">
+              <a href={shop.social.instagram} target="_blank" rel="noopener noreferrer" className="text-ink hover:text-prism transition-colors">
                 <Instagram className="w-6 h-6" />
               </a>
-              <a href="https://www.facebook.com/p/4nguru-The-Brand-100063554708976/" target="_blank" rel="noopener noreferrer" className="text-ink hover:text-prism transition-colors">
+              <a href={shop.social.facebook} target="_blank" rel="noopener noreferrer" className="text-ink hover:text-prism transition-colors">
                 <Facebook className="w-6 h-6" />
               </a>
             </div>
@@ -142,7 +143,7 @@ export function CustomerService() {
           </div>
           <div className="md:justify-self-end">
             <a
-              href="https://wa.me/27678684428"
+              href={whatsappLink()}
               target="_blank"
               rel="noopener noreferrer"
               className="cta"
