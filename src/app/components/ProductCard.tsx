@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Product } from "../utils/storage";
+import type { Product } from "../api/types";
 import { ProductImage } from "./prism";
 
 interface ProductCardProps {

@@ -1,27 +1,43 @@
-import { Hono } from "npm:hono";
-import { cors } from "npm:hono/cors";
-import { logger } from "npm:hono/logger";
-import * as kv from "./kv_store.tsx";
-const app = new Hono();
+import { createClient } from 'jsr:@supabase/supabase-js@2.49.8';
+import * as kv from './kv_store.tsx';
+import { createApp } from './app.ts';
+import type { Deps } from './types.ts';
 
-// Enable logger
-app.use('*', logger(console.log));
+function requireEnv(name: string): string {
+  const v = Deno.env.get(name);
+  if (!v) throw new Error(`Missing env var ${name}`);
+  return v;
+}
 
-// Enable CORS for all routes and methods
-app.use(
-  "/*",
-  cors({
-    origin: "*",
-    allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    exposeHeaders: ["Content-Length"],
-    maxAge: 600,
-  }),
-);
+const BUCKET = 'product-images';
+const EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
 
-// Health check endpoint
-app.get("/make-server-fbb8f0e1/health", (c) => {
-  return c.json({ status: "ok" });
-});
+const client = () => createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'));
 
-Deno.serve(app.fetch);
+const deps: Deps = {
+  kv,
+  async isAdmin(authHeader) {
+    const m = authHeader?.match(/^Bearer\s+(.+)$/i);
+    if (!m) return 'unauthenticated';
+    const { data, error } = await client().auth.getUser(m[1]);
+    if (error || !data?.user) return 'unauthenticated';
+    return data.user.app_metadata?.role === 'admin' ? 'ok' : 'forbidden';
+  },
+  async uploadImage(file) {
+    const supabase = client();
+    const ext = EXT[file.type] ?? 'bin';
+    const path = `${crypto.randomUUID()}.${ext}`;
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, file, { contentType: file.type });
+    if (error) throw new Error(error.message);
+    return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+  },
+};
+
+Deno.serve(createApp(deps).fetch);

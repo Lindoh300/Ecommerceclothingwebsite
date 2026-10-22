@@ -1,8 +1,8 @@
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
-import { getProducts } from "../utils/storage";
+import { useProducts } from "../hooks/useProducts";
 import { ProductCard } from "./ProductCard";
-import { GooArt, Ticker } from "./prism";
+import { GooArt, LoadState, Ticker } from "./prism";
 
 const categories = [
   { name: "T-Shirts", path: "/tshirts" },
@@ -33,7 +33,8 @@ const heroMetas = [
 ];
 
 export function Home() {
-  const featuredProducts = getProducts().slice(0, 100);
+  const { products, loading, error, reload } = useProducts();
+  const featuredProducts = products.slice(0, 100);
 
   return (
     <div className="min-h-screen overflow-x-hidden">
@@ -109,11 +110,13 @@ export function Home() {
             <p className="micro text-b60">02 / Featured</p>
             <h2 className="display h-mid">Featured products</h2>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {featuredProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          <LoadState loading={loading} error={error} onRetry={() => reload().catch(() => {})}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {featuredProducts.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </LoadState>
         </div>
       </section>
     </div>

@@ -1,158 +1,113 @@
-export interface Product {
-  id: string;
-  name: string;
-  category: 'tshirts' | 'jerseys' | 'shorts' | 'pants' | 'accessories';
-  price: number;
-  description: string;
-  image: string;
-  images: string[];
-  sizes: string[];
-  colors: string[];
-  stock: number;
-}
+import { toast } from "sonner";
+import type { Product } from "../api/types";
+import { getCachedProduct } from "../hooks/useProducts";
 
-export interface CartItem extends Product {
+export type { Product } from "../api/types";
+
+export interface CartLine {
+  productId: string;
+  size?: string;
+  color?: string;
   quantity: number;
-  selectedSize?: string;
-  selectedColor?: string;
 }
 
-const PRODUCTS_KEY = 'clothing_store_products';
-const CART_KEY = 'clothing_store_cart';
+const CART_KEY = "clothing_store_cart_v2";
+const OLD_CART_KEY = "clothing_store_cart";
 
-// Initialize with sample products
-const defaultProducts: Product[] = [
-  {
-    id: '1',
-    name: 'Classic Cotton T-Shirt',
-    category: 'tshirts',
-    price: 25,
-    description: 'Comfortable 100% cotton t-shirt perfect for everyday wear',
-    image: '/images/products/tshirt1.jpg',
-    images: ['/images/products/tshirt1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL', 'XXL'],
-    colors: ['Black', 'White', 'Navy', 'Gray'],
-    stock: 50
-  },
-  {
-    id: '2',
-    name: 'Premium Sports Jersey',
-    category: 'jerseys',
-    price: 45,
-    description: 'Breathable sports jersey with moisture-wicking technology',
-    image: '/images/products/jersey1.jpg',
-    images: ['/images/products/jersey1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL'],
-    colors: ['Red', 'Blue', 'Green'],
-    stock: 30
-  },
-  {
-    id: '3',
-    name: 'Athletic Shorts',
-    category: 'shorts',
-    price: 30,
-    description: 'Lightweight shorts ideal for workouts and sports',
-    image: '/images/products/shorts1.jpg',
-    images: ['/images/products/shorts1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL'],
-    colors: ['Black', 'Navy', 'Gray'],
-    stock: 40
-  },
-  {
-    id: '4',
-    name: 'Casual Jogger Pants',
-    category: 'pants',
-    price: 50,
-    description: 'Comfortable jogger pants with elastic waistband',
-    image: '/images/products/pants1.jpg',
-    images: ['/images/products/pants1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL', 'XXL'],
-    colors: ['Black', 'Gray', 'Khaki'],
-    stock: 35
-  },
-  {
-    id: '5',
-    name: 'Baseball Cap',
-    category: 'accessories',
-    price: 20,
-    description: 'Adjustable baseball cap with embroidered logo',
-    image: '/images/products/cap1.jpg',
-    images: ['/images/products/cap1.jpg', '', ''],
-    sizes: ['One Size'],
-    colors: ['Black', 'Navy', 'White', 'Red'],
-    stock: 60
-  }
-];
+const isQuotaError = (e: unknown): boolean =>
+  e instanceof DOMException && e.name === "QuotaExceededError";
 
-export const getProducts = (): Product[] => {
-  const stored = localStorage.getItem(PRODUCTS_KEY);
-  if (!stored) {
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(defaultProducts));
-    return defaultProducts;
-  }
-  return JSON.parse(stored);
-};
-
-export const getProductById = (id: string): Product | undefined => {
-  return getProducts().find(p => p.id === id);
-};
-
-export const getProductsByCategory = (category: string): Product[] => {
-  return getProducts().filter(p => p.category === category);
-};
-
-export const addProduct = (product: Omit<Product, 'id'>): Product => {
-  const products = getProducts();
-  const newProduct = {
-    ...product,
-    id: Date.now().toString()
-  };
-  products.push(newProduct as Product);
+// Returns false, and shows a toast if the browser storage is full.
+const saveCart = (cart: CartLine[]): boolean => {
   try {
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    return true;
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      alert('Storage quota exceeded. Please use smaller images or delete existing products. For professional use, connecting a database like Supabase is recommended.');
+    if (isQuotaError(e)) {
+      toast.error("Could not save your cart", {
+        description: "Browser storage is full. Clear some site data and try again.",
+      });
     }
-    throw e;
-  }
-  return newProduct as Product;
-};
-
-export const updateProduct = (id: string, updates: Partial<Product>): void => {
-  const products = getProducts();
-  const index = products.findIndex(p => p.id === id);
-  if (index !== -1) {
-    products[index] = { ...products[index], ...updates };
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    return false;
   }
 };
 
-export const deleteProduct = (id: string): void => {
-  const products = getProducts().filter(p => p.id !== id);
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+const parseLines = (raw: string | null): CartLine[] | null => {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as CartLine[]) : [];
+  } catch {
+    return [];
+  }
 };
 
-export const getCart = (): CartItem[] => {
-  const stored = localStorage.getItem(CART_KEY);
-  return stored ? JSON.parse(stored) : [];
+// Moves the old cart ({id, quantity, selectedSize, selectedColor, ...}) into v2 lines.
+const migrateOldCart = (): CartLine[] | null => {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(OLD_CART_KEY);
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+
+  let lines: CartLine[] = [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      lines = parsed
+        .filter((item) => item && typeof item === "object" && item.id != null)
+        .map((item) => ({
+          productId: String(item.id),
+          size: item.selectedSize || undefined,
+          color: item.selectedColor || undefined,
+          quantity: Number(item.quantity) > 0 ? Number(item.quantity) : 1,
+        }));
+    }
+  } catch {
+    lines = [];
+  }
+  if (saveCart(lines)) {
+    try {
+      localStorage.removeItem(OLD_CART_KEY);
+    } catch {
+      // ignore
+    }
+  }
+  return lines;
+};
+
+export const getCart = (): CartLine[] => {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(CART_KEY);
+  } catch {
+    return [];
+  }
+  if (raw === null) {
+    const migrated = migrateOldCart();
+    return migrated ?? [];
+  }
+  return parseLines(raw) ?? [];
 };
 
 // Total quantity of one product across all of its cart lines (all sizes and colours).
 // Pass excludeIndex to leave out one line, e.g. when that line is being changed.
 export const getCartQuantityForProduct = (productId: string, excludeIndex?: number): number => {
   return getCart().reduce(
-    (total, item, index) => (item.id === productId && index !== excludeIndex ? total + item.quantity : total),
+    (total, line, index) => (line.productId === productId && index !== excludeIndex ? total + line.quantity : total),
     0
   );
 };
 
-// Current stock from the product list, or the fallback (stored on the cart line) if the product is gone.
+// Current stock from the loaded product list, or the fallback if the product is not loaded.
 export const getAvailableStock = (productId: string, fallback = 0): number => {
-  return getProductById(productId)?.stock ?? fallback;
+  return getCachedProduct(productId)?.stock ?? fallback;
 };
 
-// Returns false, and leaves the cart unchanged, if the total would exceed stock.
+// Returns false, and leaves the cart unchanged, if the total would exceed stock
+// or the cart could not be saved.
 // Worked check: stock 3, cart holds 2 of size M.
 //   addToCart(p, 2, 'L') -> 2 + 2 = 4 > 3, returns false.
 //   addToCart(p, 1, 'L') -> 2 + 1 = 3, not > 3, returns true.
@@ -163,52 +118,39 @@ export const addToCart = (product: Product, quantity: number = 1, size?: string,
 
   const cart = getCart();
   const existingIndex = cart.findIndex(
-    item => item.id === product.id && item.selectedSize === size && item.selectedColor === color
+    (line) => line.productId === product.id && line.size === size && line.color === color
   );
 
   if (existingIndex !== -1) {
     cart[existingIndex].quantity += quantity;
   } else {
-    cart.push({ ...product, quantity, selectedSize: size, selectedColor: color });
+    cart.push({ productId: product.id, size, color, quantity });
   }
 
-  try {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    window.dispatchEvent(new Event('cartUpdated'));
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      alert('Cart is full. This usually happens when product data (including large images) exceeds the browser storage limit. Consider reducing the number of products or using a real database.');
-    }
-    throw e;
-  }
+  if (!saveCart(cart)) return false;
+  window.dispatchEvent(new Event("cartUpdated"));
   return true;
 };
 
 export const updateCartItem = (index: number, quantity: number): boolean => {
   const cart = getCart();
-  const item = cart[index];
-  if (!item) return false;
-  if (getCartQuantityForProduct(item.id, index) + quantity > getAvailableStock(item.id, item.stock)) {
+  const line = cart[index];
+  if (!line) return false;
+  if (getCartQuantityForProduct(line.productId, index) + quantity > getAvailableStock(line.productId)) {
     return false;
   }
   cart[index].quantity = quantity;
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  return true;
+  return saveCart(cart);
 };
 
 export const removeFromCart = (index: number): void => {
-  const cart = getCart().filter((_, i) => i !== index);
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  saveCart(getCart().filter((_, i) => i !== index));
 };
 
 export const clearCart = (): void => {
-  localStorage.setItem(CART_KEY, JSON.stringify([]));
-};
-
-export const getCartTotal = (): number => {
-  return getCart().reduce((total, item) => total + (item.price * item.quantity), 0);
+  saveCart([]);
 };
 
 export const getCartCount = (): number => {
-  return getCart().reduce((count, item) => count + item.quantity, 0);
+  return getCart().reduce((count, line) => count + line.quantity, 0);
 };

@@ -1,9 +1,11 @@
 import { useParams, useNavigate } from "react-router";
 import { useState } from "react";
-import { getProductById, addToCart, getCartQuantityForProduct } from "../utils/storage";
+import { addToCart, getCartQuantityForProduct } from "../utils/storage";
 import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+import { useProduct, useProducts } from "../hooks/useProducts";
 import { ProductImage } from "./prism/ProductImage";
+import { LoadState } from "./prism/LoadState";
 
 const categoryNames: Record<string, string> = {
   tshirts: 'T-Shirts',
@@ -16,7 +18,8 @@ const categoryNames: Record<string, string> = {
 export function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const product = getProductById(id || '');
+  const { product, loading, error } = useProduct(id);
+  const { reload } = useProducts();
 
   const [selectedSize, setSelectedSize] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
@@ -28,6 +31,18 @@ export function ProductDetail() {
 
   const goToPrev = () => setActiveImageIndex((i) => (i - 1 + totalImages) % totalImages);
   const goToNext = () => setActiveImageIndex((i) => (i + 1) % totalImages);
+
+  if (loading || error) {
+    return (
+      <div className="min-h-screen bg-paper py-12 md:py-16">
+        <div className="max-w-[1968px] mx-auto px-6">
+          <LoadState loading={loading} error={error} onRetry={() => reload().catch(() => {})}>
+            {null}
+          </LoadState>
+        </div>
+      </div>
+    );
+  }
 
   if (!product) {
     return (
