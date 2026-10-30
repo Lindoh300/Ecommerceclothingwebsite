@@ -1,8 +1,10 @@
 import { useParams, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
-import { addToCart, findVariant, getCartQuantityForVariant } from "../utils/storage";
+import { addToCart, findVariant, getCart } from "../utils/storage";
+import type { CartLine } from "../utils/storage";
+import type { Product } from "../api/types";
 import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { useProduct, useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
 import { ProductImage } from "./prism/ProductImage";
@@ -16,10 +18,18 @@ const optionClass = (selected: boolean) =>
     selected ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink border-b10 hover:border-ink'
   }`;
 
-export function ProductDetail() {
+interface ProductDetailProps {
+  /** Product the route loader fetched on the server. Shown until the shared product list loads. */
+  initialProduct?: Product | null;
+  /** The loader found no such product (the page is sent with status 404). */
+  notFound?: boolean;
+}
+
+export function ProductDetail({ initialProduct = null, notFound = false }: ProductDetailProps = {}) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { product, loading, error } = useProduct(id);
+  const { product: loadedProduct, loading, error } = useProduct(id);
+  const product = loadedProduct ?? initialProduct ?? undefined;
   const { reload } = useProducts();
   const { categories } = useCategories();
 
@@ -27,10 +37,13 @@ export function ProductDetail() {
   const [selectedColor, setSelectedColor] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
-  // Re-render when the cart changes, so the quantity limit counts what is already in it.
-  const [, setCartVersion] = useState(0);
+  // The cart is browser-only, so it is read after mount (empty on the server and in the first
+  // client render, which keeps hydration identical) and again whenever it changes. The quantity
+  // limit counts what is already in it.
+  const [cartLines, setCartLines] = useState<CartLine[]>([]);
   useEffect(() => {
-    const onChange = () => setCartVersion((n) => n + 1);
+    const onChange = () => setCartLines(getCart());
+    onChange();
     window.addEventListener('cartUpdated', onChange);
     window.addEventListener('storage', onChange);
     return () => {
@@ -63,13 +76,22 @@ export function ProductDetail() {
   const optionsChosen = sizeChosen && colorChosen;
   const selectedVariant = product && optionsChosen ? findVariant(product, size, color) : undefined;
   const selectedStock = selectedVariant?.stock ?? 0;
-  const inCart = product && optionsChosen ? getCartQuantityForVariant(product.id, size, color) : 0;
+  const inCart =
+    product && optionsChosen
+      ? cartLines.reduce(
+          (total, line) =>
+            line.productId === product.id && (line.size ?? "") === size && (line.color ?? "") === color
+              ? total + line.quantity
+              : total,
+          0,
+        )
+      : 0;
   const remaining = Math.max(0, selectedStock - inCart);
   const shownQuantity = Math.max(1, Math.min(quantity, remaining));
   const soldOut = !!product && (product.variants?.length ? product.variants.every((v) => v.stock <= 0) : product.stock <= 0);
   const categoryName = categories.find((c) => c.id === product?.category)?.name ?? product?.category;
 
-  if (loading || error) {
+  if (!product && !notFound && (loading || error)) {
     return (
       <div className="min-h-screen bg-paper py-12 md:py-16">
         <div className="max-w-[1968px] mx-auto px-6">

@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import type { Product, Variant } from "../api/types";
 import { getCachedProduct } from "../hooks/useProducts";
 

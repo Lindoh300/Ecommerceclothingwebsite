@@ -10,6 +10,11 @@ dist-ssr/
 # Vite cache
 .vite/
 
+# React Router build, generated types and Vercel output
+build/
+.react-router/
+.vercel/
+
 # Environment files (keep secrets out of git)
 .env
 .env.*

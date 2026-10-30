@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import type { CartLine } from "../utils/storage";
-import { getCart, removeFromCart, updateCartItem, clearCart, getCartQuantityForVariant, findVariant, getVariantStock } from "../utils/storage";
+import { getCart, removeFromCart, updateCartItem, clearCart, findVariant, getVariantStock } from "../utils/storage";
 import { Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { ProductImage } from "./prism/ProductImage";
 import { CheckoutPanel } from "./CheckoutPanel";
 import { useProducts } from "../hooks/useProducts";
@@ -11,7 +11,10 @@ import { quoteCart } from "../api/products";
 import type { CartQuote } from "../api/types";
 
 export function Cart() {
-  const [lines, setLines] = useState(getCart());
+  // The cart lives in the browser. It is read after mount, so the server and the first client
+  // render both show the same neutral page and hydration matches.
+  const [lines, setLines] = useState<CartLine[]>([]);
+  const [cartReady, setCartReady] = useState(false);
   const { products, loading: productsLoading, error: productsError, reload } = useProducts();
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [quote, setQuote] = useState<CartQuote | null>(null);
@@ -26,6 +29,7 @@ export function Cart() {
 
   useEffect(() => {
     refreshCart();
+    setCartReady(true);
     window.addEventListener("cartUpdated", refreshCart);
     return () => window.removeEventListener("cartUpdated", refreshCart);
   }, []);
@@ -78,6 +82,15 @@ export function Cart() {
     );
     return quoted ? quoted.available : getVariantStock(line.productId, line.size, line.color);
   };
+  // Units of this line's variant in the cart, all lines on it.
+  const quantityInCart = (line: CartLine): number =>
+    lines.reduce(
+      (sum, l) =>
+        l.productId === line.productId && (l.size ?? "") === (line.size ?? "") && (l.color ?? "") === (line.color ?? "")
+          ? sum + l.quantity
+          : sum,
+      0,
+    );
   const total = quote?.total ?? 0;
 
   const handleUpdateQuantity = (index: number, quantity: number) => {
@@ -106,6 +119,10 @@ export function Cart() {
     refreshCart();
     window.dispatchEvent(new Event('cartUpdated'));
   };
+
+  if (!cartReady) {
+    return <div className="min-h-screen bg-paper" />;
+  }
 
   if (lines.length === 0) {
     return (
@@ -174,7 +191,7 @@ export function Cart() {
                       <span className="w-8 text-center font-mono">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
-                        disabled={orderPlaced || unavailable || getCartQuantityForVariant(item.productId, item.size, item.color) >= availableFor(item)}
+                        disabled={orderPlaced || unavailable || quantityInCart(item) >= availableFor(item)}
                         className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         +

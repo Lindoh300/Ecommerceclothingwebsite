@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { Button } from "./ui/button";
 import { cancelOrder, listOrders } from "../api/orders";
 import type { Order } from "../api/types";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Edit, Plus, Save, Trash2, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";

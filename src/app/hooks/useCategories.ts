@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { listCategories } from '../api/categories'
 import type { Category } from '../api/types'
 
@@ -29,6 +29,14 @@ function getSnapshot() {
   return state
 }
 
+// Same empty state on the server and in the first client render, so hydration matches. The cache
+// is per browser tab, never filled on the server.
+const serverState: CategoriesState = { categories: [], loaded: false, loading: false, error: null }
+
+function getServerSnapshot() {
+  return serverState
+}
+
 export function loadCategories(force = false): Promise<Category[]> {
   if (inFlight) return inFlight
   if (state.loaded && !force) return Promise.resolve(state.categories)
@@ -56,13 +64,11 @@ export function useCategories(): {
   error: string | null
   reload: () => Promise<Category[]>
 } {
-  const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  // Kick off the initial load once. Skip after a failure so a failing API does not cause a request loop.
-  if (!snap.loaded && !snap.loading && !snap.error) {
-    queueMicrotask(() => {
-      if (!state.loaded && !state.loading && !state.error) loadCategories().catch(() => {})
-    })
-  }
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  // Kick off the initial load once, in the browser after mount. Skip after a failure so a failing API does not cause a request loop.
+  useEffect(() => {
+    if (!state.loaded && !state.loading && !state.error) loadCategories().catch(() => {})
+  }, [snap.loaded, snap.loading, snap.error])
   const reload = useCallback(() => loadCategories(true), [])
   return {
     categories: snap.categories,

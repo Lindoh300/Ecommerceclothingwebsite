@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { listProducts } from '../api/products'
 import type { Product } from '../api/types'
 
@@ -27,6 +27,14 @@ function subscribe(listener: () => void) {
 
 function getSnapshot() {
   return state
+}
+
+// The server (and the first client render, while hydrating) always sees the empty, not yet loaded
+// state, so both render the same HTML. The cache is per browser tab, never filled on the server.
+const serverState: ProductsState = { products: [], loaded: false, loading: false, error: null }
+
+function getServerSnapshot() {
+  return serverState
 }
 
 export function loadProducts(force = false): Promise<Product[]> {
@@ -64,14 +72,12 @@ export function setCachedProducts(products: Product[]): void {
 }
 
 function useProductsState(): ProductsState {
-  const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  // Kick off the initial load once, after subscribing. Skip if a previous
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  // Kick off the initial load once, in the browser after mount. Skip if a previous
   // attempt failed so a failing API does not cause a request loop.
-  if (!snap.loaded && !snap.loading && !snap.error) {
-    queueMicrotask(() => {
-      if (!state.loaded && !state.loading && !state.error) loadProducts().catch(() => {})
-    })
-  }
+  useEffect(() => {
+    if (!state.loaded && !state.loading && !state.error) loadProducts().catch(() => {})
+  }, [snap.loaded, snap.loading, snap.error])
   return snap
 }
 

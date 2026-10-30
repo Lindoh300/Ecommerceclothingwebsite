@@ -68,16 +68,19 @@ interface GooArtProps {
 
 export function GooArt({ cols = 6, rows = 6, variant = "tile", resampleMs, seed, className }: GooArtProps) {
   const count = cols * rows;
+  // Seeded art is deterministic, so the server and the browser draw the same thing. Unseeded art
+  // starts from a fixed seed (same HTML on both) and takes its random sample after mount.
   const [sample, setSample] = useState<Sample>(() =>
-    sampleGoo(count, seed ? mulberry32(hashString(seed)) : Math.random),
+    sampleGoo(count, mulberry32(hashString(seed ?? "goo"))),
   );
   const hostRef = useRef<HTMLDivElement>(null);
   const first = useRef(true);
 
-  // Re-derive when grid size or seed changes (skip the initial render).
+  // Re-derive when grid size or seed changes. On mount only unseeded art changes, to a random sample.
   useEffect(() => {
     if (first.current) {
       first.current = false;
+      if (!seed) setSample(sampleGoo(count, Math.random));
       return;
     }
     setSample(sampleGoo(count, seed ? mulberry32(hashString(seed)) : Math.random));

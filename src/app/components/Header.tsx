@@ -1,11 +1,23 @@
 import { Link, NavLink } from "react-router";
 import { ShoppingCart, Menu, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { getCartCount } from "../utils/storage";
 import { useCategories } from "../hooks/useCategories";
 import { categoryPath } from "../utils/categoryPath";
 
+const LOGO_FALLBACK = '/images/logo-placeholder.svg';
+
+// The logo file is optional. Swap in the placeholder when it is missing.
+function swapToFallback(img: HTMLImageElement) {
+  if (!img.src.endsWith(LOGO_FALLBACK)) img.src = LOGO_FALLBACK;
+}
+
 export function Header() {
+  // The server sends the <img>, so a missing logo can fail before React attaches onError.
+  // Check for that once the element is mounted.
+  const logoRef = useCallback((img: HTMLImageElement | null) => {
+    if (img && img.complete && img.naturalWidth === 0) swapToFallback(img);
+  }, []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
 
@@ -33,12 +45,11 @@ export function Header() {
         {/* Logo and Brand */}
         <Link to="/" className="flex items-center gap-3">
           <img
+            ref={logoRef}
             src="/images/logo.jpg"
             alt="Logo"
             className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover"
-            onError={(e) => {
-              e.currentTarget.src = '/images/logo-placeholder.svg';
-            }}
+            onError={(e) => swapToFallback(e.currentTarget)}
           />
           <span className="font-bold text-2xl md:text-3xl">
             <span className="text-yellow-500">4</span>
