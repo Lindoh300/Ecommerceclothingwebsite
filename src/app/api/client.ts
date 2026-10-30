@@ -1,5 +1,3 @@
-import { supabase } from '../lib/supabase'
-
 export class ApiError extends Error {
   status: number
   body?: unknown
@@ -36,6 +34,8 @@ export async function apiFetch<T>(path: string, opts: ApiOptions = {}): Promise<
   if (anonKey) headers.apikey = anonKey
 
   if (opts.admin) {
+    // Loaded here so @supabase/supabase-js stays out of the customer bundle.
+    const { supabase } = await import('../lib/supabase')
     if (supabase) {
       const { data } = await supabase.auth.getSession()
       const token = data.session?.access_token
