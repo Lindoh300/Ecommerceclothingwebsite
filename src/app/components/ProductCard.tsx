@@ -6,25 +6,30 @@ interface ProductCardProps {
   product: Product;
 }
 
+const LOW_STOCK_TOTAL = 5;
+
 export function ProductCard({ product }: ProductCardProps) {
+  // Sold out only when every variant is at 0 (a product without variants falls back to its total).
+  const soldOut = product.variants?.length ? product.variants.every((v) => v.stock <= 0) : product.stock <= 0;
+  const lowStock = !soldOut && product.stock <= LOW_STOCK_TOTAL;
   return (
     <Link to={`/product/${product.id}`} className="group block">
-      <div className="aspect-square bg-b5 overflow-hidden">
+      <div className="aspect-square bg-b5 overflow-hidden r-card">
         <div className="h-full w-full transition-transform duration-300 group-hover:scale-[1.03]">
           <ProductImage src={product.image} alt={product.name} seed={product.id} />
         </div>
       </div>
       <div className="mt-3">
         <div className="flex items-baseline justify-between gap-3">
-          <h3 className="uppercase font-medium text-[15px]">{product.name}</h3>
+          <h3 className="caps font-medium text-[15px]">{product.name}</h3>
           <span className="font-mono shrink-0">R{product.price}</span>
         </div>
         <p className="text-b60 text-sm mt-1 line-clamp-2">{product.description}</p>
-        {product.stock > 0 ? (
-          <p className="micro text-b60 mt-2">{product.stock} in stock</p>
-        ) : (
+        {soldOut ? (
           <p className="micro text-prism mt-2">Sold out</p>
-        )}
+        ) : lowStock ? (
+          <p className="micro text-b60 mt-2">Low stock</p>
+        ) : null}
       </div>
     </Link>
   );

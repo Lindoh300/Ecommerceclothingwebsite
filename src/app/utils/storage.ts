@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import type { Product } from "../api/types";
+import type { Product, Variant } from "../api/types";
 import { getCachedProduct } from "../hooks/useProducts";
 
 export type { Product } from "../api/types";
@@ -92,27 +92,48 @@ export const getCart = (): CartLine[] => {
   return parseLines(raw) ?? [];
 };
 
-// Total quantity of one product across all of its cart lines (all sizes and colours).
-// Pass excludeIndex to leave out one line, e.g. when that line is being changed.
-export const getCartQuantityForProduct = (productId: string, excludeIndex?: number): number => {
+// The variant of a product for a size and colour. A missing size or colour matches
+// a variant whose size or colour is ''. Undefined if there is no such variant.
+export const findVariant = (product: Pick<Product, "variants">, size?: string, color?: string): Variant | undefined =>
+  product.variants?.find((v) => v.size === (size ?? "") && v.color === (color ?? ""));
+
+// Quantity in the cart for one variant (all lines on it). Pass excludeIndex to leave out one
+// line, e.g. when that line is being changed.
+export const getCartQuantityForVariant = (
+  productId: string,
+  size?: string,
+  color?: string,
+  excludeIndex?: number
+): number => {
   return getCart().reduce(
-    (total, line, index) => (line.productId === productId && index !== excludeIndex ? total + line.quantity : total),
+    (total, line, index) =>
+      line.productId === productId &&
+      (line.size ?? "") === (size ?? "") &&
+      (line.color ?? "") === (color ?? "") &&
+      index !== excludeIndex
+        ? total + line.quantity
+        : total,
     0
   );
 };
 
-// Current stock from the loaded product list, or the fallback if the product is not loaded.
-export const getAvailableStock = (productId: string, fallback = 0): number => {
-  return getCachedProduct(productId)?.stock ?? fallback;
+// Current stock of a variant from the loaded product list. 0 if the product is not loaded
+// or the variant no longer exists.
+export const getVariantStock = (productId: string, size?: string, color?: string): number => {
+  const product = getCachedProduct(productId);
+  return product ? (findVariant(product, size, color)?.stock ?? 0) : 0;
 };
 
-// Returns false, and leaves the cart unchanged, if the total would exceed stock
-// or the cart could not be saved.
-// Worked check: stock 3, cart holds 2 of size M.
-//   addToCart(p, 2, 'L') -> 2 + 2 = 4 > 3, returns false.
-//   addToCart(p, 1, 'L') -> 2 + 1 = 3, not > 3, returns true.
+// Returns false, and leaves the cart unchanged, if the variant's total would exceed its stock,
+// the variant does not exist, or the cart could not be saved.
+// Worked check: variant M/Black has stock 3, cart holds 2 of it.
+//   addToCart(p, 2, 'M', 'Black') -> 2 + 2 = 4 > 3, returns false.
+//   addToCart(p, 1, 'M', 'Black') -> 2 + 1 = 3, not > 3, returns true.
+// Other variants of the same product do not count against it.
 export const addToCart = (product: Product, quantity: number = 1, size?: string, color?: string): boolean => {
-  if (getCartQuantityForProduct(product.id) + quantity > getAvailableStock(product.id, product.stock)) {
+  const variant = findVariant(getCachedProduct(product.id) ?? product, size, color);
+  if (!variant) return false;
+  if (getCartQuantityForVariant(product.id, size, color) + quantity > variant.stock) {
     return false;
   }
 
@@ -132,12 +153,16 @@ export const addToCart = (product: Product, quantity: number = 1, size?: string,
   return true;
 };
 
+// Lowering a quantity is always allowed, even if the variant has gone or sold down.
 export const updateCartItem = (index: number, quantity: number): boolean => {
   const cart = getCart();
   const line = cart[index];
   if (!line) return false;
-  if (getCartQuantityForProduct(line.productId, index) + quantity > getAvailableStock(line.productId)) {
-    return false;
+  if (quantity > line.quantity) {
+    const others = getCartQuantityForVariant(line.productId, line.size, line.color, index);
+    if (others + quantity > getVariantStock(line.productId, line.size, line.color)) {
+      return false;
+    }
   }
   cart[index].quantity = quantity;
   return saveCart(cart);

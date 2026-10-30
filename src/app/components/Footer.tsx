@@ -1,9 +1,12 @@
 import { Link } from "react-router";
 import { Facebook, Instagram } from "lucide-react";
 import { shop } from "../config/shop";
+import { useCategories } from "../hooks/useCategories";
+import { categoryPath } from "../utils/categoryPath";
 
 export function Footer() {
   const year = new Date().getFullYear();
+  const { categories } = useCategories();
 
   return (
     <footer className="mt-auto border-t border-b10 bg-paper text-ink">
@@ -11,7 +14,7 @@ export function Footer() {
         <div className="flex flex-col gap-16 lg:flex-row lg:gap-12">
           {/* Brand */}
           <div className="flex min-w-0 flex-1 flex-col gap-10">
-            <p className="font-display text-6xl font-bold uppercase leading-none tracking-tighter md:text-8xl">
+            <p className="font-display h-weight h-case h-track-xl h-lead-open text-6xl md:text-8xl">
               4NGURU
             </p>
             <p className="max-w-[260px] text-lg leading-[1.45]">
@@ -21,32 +24,32 @@ export function Footer() {
 
           {/* Link columns */}
           <div className="grid min-w-0 flex-1 grid-cols-2 gap-10 md:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <h3 className="micro mb-4 text-b60">Shop</h3>
-              <ul className="space-y-2">
-                <li><Link to="/tshirts" className="text-sm uppercase hover:text-prism transition-colors">T-Shirts</Link></li>
-                <li><Link to="/jerseys" className="text-sm uppercase hover:text-prism transition-colors">Jerseys</Link></li>
-                <li><Link to="/shorts" className="text-sm uppercase hover:text-prism transition-colors">Shorts</Link></li>
-                <li><Link to="/pants" className="text-sm uppercase hover:text-prism transition-colors">Pants</Link></li>
-                <li><Link to="/accessories" className="text-sm uppercase hover:text-prism transition-colors">Accessories</Link></li>
-              </ul>
-            </div>
+            {categories.length > 0 && (
+              <div>
+                <h3 className="micro mb-4 text-b60">Shop</h3>
+                <ul className="space-y-2">
+                  {categories.map((cat) => (
+                    <li key={cat.id}><Link to={categoryPath(cat.id)} className="text-sm caps hover:text-prism transition-colors">{cat.name}</Link></li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div>
               <h3 className="micro mb-4 text-b60">Customer Service</h3>
               <ul className="space-y-2">
-                <li><Link to="/customer-service" className="text-sm uppercase hover:text-prism transition-colors">Contact Us</Link></li>
-                <li><Link to="/customer-service" className="text-sm uppercase hover:text-prism transition-colors">Shipping Info</Link></li>
-                <li><Link to="/customer-service" className="text-sm uppercase hover:text-prism transition-colors">Returns</Link></li>
-                <li><Link to="/customer-service" className="text-sm uppercase hover:text-prism transition-colors">Size Guide</Link></li>
+                <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Contact Us</Link></li>
+                <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Shipping Info</Link></li>
+                <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Returns</Link></li>
+                <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Size Guide</Link></li>
               </ul>
             </div>
 
             <div>
               <h3 className="micro mb-4 text-b60">About</h3>
               <ul className="space-y-2">
-                <li><Link to="/about" className="text-sm uppercase hover:text-prism transition-colors">Our Story</Link></li>
-                <li><Link to="/about" className="text-sm uppercase hover:text-prism transition-colors">Sustainability</Link></li>
+                <li><Link to="/about" className="text-sm caps hover:text-prism transition-colors">Our Story</Link></li>
+                <li><Link to="/about" className="text-sm caps hover:text-prism transition-colors">Sustainability</Link></li>
               </ul>
             </div>
 

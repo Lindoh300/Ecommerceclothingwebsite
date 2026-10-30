@@ -57,7 +57,7 @@ export function About() {
               </p>
             </div>
           </div>
-          <div className="overflow-hidden border border-b10">
+          <div className="overflow-hidden border border-b10 r-card">
             <ImageWithFallback
               src="https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?auto=format&fit=crop&q=80&w=2070"
               alt="Our Workshop"

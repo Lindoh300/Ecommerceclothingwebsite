@@ -67,7 +67,7 @@ export function AdminOrders({ onApiError }: AdminOrdersProps) {
         </Button>
       </div>
 
-      <div className="border border-b10 overflow-x-auto">
+      <div className="border border-b10 r-card overflow-x-auto">
         {loading && orders.length === 0 && (
           <p className="px-6 py-4 micro text-b60">Loading orders…</p>
         )}

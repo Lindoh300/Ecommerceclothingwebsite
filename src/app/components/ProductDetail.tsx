@@ -1,36 +1,73 @@
 import { useParams, useNavigate } from "react-router";
-import { useState } from "react";
-import { addToCart, getCartQuantityForProduct } from "../utils/storage";
+import { useEffect, useState } from "react";
+import { addToCart, findVariant, getCartQuantityForVariant } from "../utils/storage";
 import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useProduct, useProducts } from "../hooks/useProducts";
+import { useCategories } from "../hooks/useCategories";
 import { ProductImage } from "./prism/ProductImage";
 import { LoadState } from "./prism/LoadState";
 
-const categoryNames: Record<string, string> = {
-  tshirts: 'T-Shirts',
-  jerseys: 'Jerseys',
-  shorts: 'Shorts',
-  pants: 'Pants',
-  accessories: 'Accessories'
-};
+const LOW_STOCK_LIMIT = 3;
+
+// Struck through and disabled when the option has no stock; the text stays for screen readers.
+const optionClass = (selected: boolean) =>
+  `min-w-[48px] px-4 py-2 border text-sm transition-colors disabled:cursor-not-allowed disabled:border-b10 disabled:bg-b5 disabled:text-b60 disabled:line-through ${
+    selected ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink border-b10 hover:border-ink'
+  }`;
 
 export function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { product, loading, error } = useProduct(id);
   const { reload } = useProducts();
+  const { categories } = useCategories();
 
   const [selectedSize, setSelectedSize] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  // Re-render when the cart changes, so the quantity limit counts what is already in it.
+  const [, setCartVersion] = useState(0);
+  useEffect(() => {
+    const onChange = () => setCartVersion((n) => n + 1);
+    window.addEventListener('cartUpdated', onChange);
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener('cartUpdated', onChange);
+      window.removeEventListener('storage', onChange);
+    };
+  }, []);
 
   const galleryImages = (product?.images ?? []).filter(Boolean);
   const totalImages = galleryImages.length;
 
   const goToPrev = () => setActiveImageIndex((i) => (i - 1 + totalImages) % totalImages);
   const goToNext = () => setActiveImageIndex((i) => (i + 1) % totalImages);
+
+  // A product with one size or one colour selects it for the customer.
+  const size = product?.sizes.length === 1 ? product.sizes[0] : selectedSize;
+  const color = product?.colors.length === 1 ? product.colors[0] : selectedColor;
+  const sizeChosen = !product || product.sizes.length === 0 || !!size;
+  const colorChosen = !product || product.colors.length === 0 || !!color;
+  const variantStock = (sz: string, cl: string) => (product ? (findVariant(product, sz, cl)?.stock ?? 0) : 0);
+  // A size is out when it has no stock in the chosen colour (or in any colour, if none is chosen), and vice versa.
+  const sizeOut = (sz: string) =>
+    color || (product?.colors.length ?? 0) === 0
+      ? variantStock(sz, color) <= 0
+      : (product?.colors ?? []).every((cl) => variantStock(sz, cl) <= 0);
+  const colorOut = (cl: string) =>
+    size || (product?.sizes.length ?? 0) === 0
+      ? variantStock(size, cl) <= 0
+      : (product?.sizes ?? []).every((sz) => variantStock(sz, cl) <= 0);
+  const optionsChosen = sizeChosen && colorChosen;
+  const selectedVariant = product && optionsChosen ? findVariant(product, size, color) : undefined;
+  const selectedStock = selectedVariant?.stock ?? 0;
+  const inCart = product && optionsChosen ? getCartQuantityForVariant(product.id, size, color) : 0;
+  const remaining = Math.max(0, selectedStock - inCart);
+  const shownQuantity = Math.max(1, Math.min(quantity, remaining));
+  const soldOut = !!product && (product.variants?.length ? product.variants.every((v) => v.stock <= 0) : product.stock <= 0);
+  const categoryName = categories.find((c) => c.id === product?.category)?.name ?? product?.category;
 
   if (loading || error) {
     return (
@@ -56,28 +93,27 @@ export function ProductDetail() {
   }
 
   const handleAddToCart = () => {
-    if (product.sizes.length > 1 && !selectedSize) {
+    if (!sizeChosen) {
       toast.error('Please select a size');
       return;
     }
-    if (product.colors.length > 1 && !selectedColor) {
+    if (!colorChosen) {
       toast.error('Please select a color');
       return;
     }
 
-    const added = addToCart(product, quantity, selectedSize || product.sizes[0], selectedColor || product.colors[0]);
+    const added = addToCart(product, shownQuantity, size || undefined, color || undefined);
     if (!added) {
-      const inCart = getCartQuantityForProduct(product.id);
       toast.error('Not enough stock', {
         description: inCart > 0
-          ? `Only ${product.stock} available and you already have ${inCart} in your cart.`
-          : `Only ${product.stock} available.`
+          ? `Only ${selectedStock} available and you already have ${inCart} in your cart.`
+          : `Only ${selectedStock} available.`
       });
       return;
     }
     window.dispatchEvent(new Event('cartUpdated'));
     toast.success('Added to cart!', {
-      description: `${quantity} × ${product.name}`
+      description: `${shownQuantity} × ${product.name}`
     });
   };
 
@@ -96,7 +132,7 @@ export function ProductDetail() {
           {/* Product Image Gallery */}
           <div className="flex flex-col gap-3">
             {/* Main Image */}
-            <div className="relative aspect-square bg-b5 overflow-hidden">
+            <div className="relative aspect-square bg-b5 overflow-hidden r-card">
               <ProductImage
                 key={activeImageIndex}
                 src={product.images?.[activeImageIndex] || product.image}
@@ -108,14 +144,14 @@ export function ProductDetail() {
                 <>
                   <button
                     onClick={goToPrev}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 bg-white hover:bg-prism hover:text-white text-ink border border-b10 p-2 transition-colors"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-prism hover:text-on-accent text-ink border border-b10 p-2 transition-colors"
                     aria-label="Previous image"
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                   <button
                     onClick={goToNext}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 bg-white hover:bg-prism hover:text-white text-ink border border-b10 p-2 transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-prism hover:text-on-accent text-ink border border-b10 p-2 transition-colors"
                     aria-label="Next image"
                   >
                     <ChevronRight className="w-5 h-5" />
@@ -125,7 +161,7 @@ export function ProductDetail() {
 
               {/* View label badge */}
               {totalImages > 1 && (
-                <span className="absolute bottom-3 right-3 bg-ink text-white font-mono text-xs px-2 py-1">
+                <span className="absolute bottom-3 right-3 bg-ink text-paper font-mono text-xs px-2 py-1">
                   {activeImageIndex + 1} / {totalImages}
                 </span>
               )}
@@ -148,8 +184,8 @@ export function ProductDetail() {
                     }`}
                   >
                     <ProductImage src={img} alt={`${product.name} — ${views[index]}`} seed={`${product.id}-${index}`} />
-                    <div className={`absolute inset-x-0 bottom-0 py-1 text-center font-mono text-[10px] uppercase transition-colors ${
-                      isActive ? 'bg-ink text-white' : 'bg-black/40 text-white group-hover:bg-prism'
+                    <div className={`absolute inset-x-0 bottom-0 py-1 text-center font-mono text-[10px] caps transition-colors ${
+                      isActive ? 'bg-ink text-paper' : 'bg-scrim/40 text-on-scrim group-hover:bg-prism group-hover:text-on-accent'
                     }`}>
                       {views[index]}
                     </div>
@@ -169,27 +205,26 @@ export function ProductDetail() {
 
           {/* Product Info */}
           <div>
-            <p className="micro text-b60 mb-3">{categoryNames[product.category]}</p>
+            <p className="micro text-b60 mb-3">{categoryName}</p>
             <h1 className="display h-mid mb-4">{product.name}</h1>
             <p className="font-mono text-2xl text-ink mb-4">R{product.price}</p>
             <p className="text-b60 mb-8">{product.description}</p>
 
             {/* Size Selection */}
             {product.sizes.length > 0 && (
-              <div className="mb-8">
-                <label className="micro block mb-3">Size</label>
+              <div className="mb-8" role="group" aria-labelledby="size-label">
+                <p id="size-label" className="micro block mb-3">Size</p>
                 <div className="flex flex-wrap gap-2">
-                  {product.sizes.map(size => (
+                  {product.sizes.map(sz => (
                     <button
-                      key={size}
-                      onClick={() => setSelectedSize(size)}
-                      className={`min-w-[48px] px-4 py-2 border text-sm transition-colors ${
-                        selectedSize === size
-                          ? 'bg-ink text-white border-ink'
-                          : 'bg-white text-ink border-b10 hover:border-ink'
-                      }`}
+                      key={sz}
+                      type="button"
+                      onClick={() => setSelectedSize(sz)}
+                      disabled={sizeOut(sz)}
+                      aria-pressed={size === sz}
+                      className={optionClass(size === sz)}
                     >
-                      {size}
+                      {sz}
                     </button>
                   ))}
                 </div>
@@ -198,20 +233,19 @@ export function ProductDetail() {
 
             {/* Color Selection */}
             {product.colors.length > 0 && (
-              <div className="mb-8">
-                <label className="micro block mb-3">Color</label>
+              <div className="mb-8" role="group" aria-labelledby="color-label">
+                <p id="color-label" className="micro block mb-3">Color</p>
                 <div className="flex flex-wrap gap-2">
-                  {product.colors.map(color => (
+                  {product.colors.map(cl => (
                     <button
-                      key={color}
-                      onClick={() => setSelectedColor(color)}
-                      className={`min-w-[48px] px-4 py-2 border text-sm transition-colors ${
-                        selectedColor === color
-                          ? 'bg-ink text-white border-ink'
-                          : 'bg-white text-ink border-b10 hover:border-ink'
-                      }`}
+                      key={cl}
+                      type="button"
+                      onClick={() => setSelectedColor(cl)}
+                      disabled={colorOut(cl)}
+                      aria-pressed={color === cl}
+                      className={optionClass(color === cl)}
                     >
-                      {color}
+                      {cl}
                     </button>
                   ))}
                 </div>
@@ -223,33 +257,49 @@ export function ProductDetail() {
               <label className="micro block mb-3">Quantity</label>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  type="button"
+                  onClick={() => setQuantity(Math.max(1, shownQuantity - 1))}
+                  aria-label="Decrease quantity"
                   className="w-10 h-10 border border-b10 text-ink hover:border-ink transition-colors"
                 >
                   -
                 </button>
-                <span className="w-12 h-10 border border-b10 flex items-center justify-center font-mono">
-                  {quantity}
+                <span className="w-12 h-10 border border-b10 flex items-center justify-center font-mono" aria-live="polite">
+                  {shownQuantity}
                 </span>
                 <button
-                  onClick={() => setQuantity(Math.min(product.stock, quantity + 1))}
-                  className="w-10 h-10 border border-b10 text-ink hover:border-ink transition-colors"
+                  type="button"
+                  onClick={() => setQuantity(Math.min(Math.max(1, remaining), shownQuantity + 1))}
+                  disabled={!optionsChosen || shownQuantity >= remaining}
+                  aria-label="Increase quantity"
+                  className="w-10 h-10 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   +
                 </button>
               </div>
-              <p className="micro text-b60 mt-3">{product.stock} available</p>
+              {optionsChosen && selectedStock > 0 && selectedStock <= LOW_STOCK_LIMIT && (
+                <p className="micro text-prism mt-3">Only {selectedStock} left</p>
+              )}
+              {optionsChosen && selectedStock > 0 && remaining === 0 && (
+                <p className="micro text-b60 mt-3">You have all available in your cart</p>
+              )}
             </div>
 
             {/* Add to Cart */}
             <button
+              type="button"
               onClick={handleAddToCart}
               className="cta w-full"
-              disabled={product.stock === 0}
+              disabled={soldOut || !optionsChosen || remaining === 0}
             >
               <ShoppingCart className="w-5 h-5" />
-              {product.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
+              {soldOut ? 'Out of Stock' : 'Add to Cart'}
             </button>
+            {!soldOut && !optionsChosen && (
+              <p className="micro text-b60 mt-3">
+                Select {!sizeChosen && !colorChosen ? 'a size and a color' : !sizeChosen ? 'a size' : 'a color'} to add to cart
+              </p>
+            )}
           </div>
         </div>
       </div>

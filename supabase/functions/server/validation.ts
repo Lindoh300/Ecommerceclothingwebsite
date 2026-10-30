@@ -1,6 +1,15 @@
-import type { CartQuoteRequest, Category, Customer, OrderItemInput, ProductInput } from './types.ts';
+import type {
+  CartQuoteRequest,
+  Customer,
+  OrderItemInput,
+  ProductInput,
+  VariantInput,
+  VariantStockInput,
+} from './types.ts';
 
-const CATEGORIES: Category[] = ['tshirts', 'jerseys', 'shorts', 'pants', 'accessories'];
+/** A category id: lowercase letters, digits and hyphens, 1 to 40 characters. */
+export const CATEGORY_ID_RE = /^[a-z0-9-]{1,40}$/;
+const CATEGORY_ID_ERROR = 'category must be a slug: lowercase letters, digits and hyphens, up to 40 characters';
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -29,15 +38,60 @@ function stringList(v: unknown, field: string): Result<string[]> {
   return { ok: true, value: v as string[] };
 }
 
+const isStock = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+
+// On create: [{size?, color?, stock}]. size and color are optional strings; '' means "no such dimension".
+function validateNewVariants(v: unknown): Result<VariantInput[]> {
+  if (!Array.isArray(v) || v.length > 500) return { ok: false, error: 'variants must be an array of up to 500 entries' };
+  const out: VariantInput[] = [];
+  for (const e of v) {
+    if (!isRecord(e)) return { ok: false, error: 'each variant must be an object' };
+    if (!isStock(e.stock)) return { ok: false, error: 'variant stock must be an integer >= 0' };
+    const item: VariantInput = { stock: e.stock };
+    for (const k of ['size', 'color'] as const) {
+      if (e[k] === undefined) continue;
+      if (typeof e[k] !== 'string' || (e[k] as string).length > 40) {
+        return { ok: false, error: `variant ${k} must be a string up to 40 characters` };
+      }
+      item[k] = e[k] as string;
+    }
+    out.push(item);
+  }
+  return { ok: true, value: out };
+}
+
+/** On update: `variants` is [{id, stock, expectedStock?}]. Pass the body's `variants` field. */
+export function validateVariantStocks(v: unknown): Result<VariantStockInput[]> {
+  if (!Array.isArray(v) || v.length > 500) return { ok: false, error: 'variants must be an array of up to 500 entries' };
+  const out: VariantStockInput[] = [];
+  for (const e of v) {
+    if (!isRecord(e) || typeof e.id !== 'string' || e.id === '' || e.id.length > 64) {
+      return { ok: false, error: 'each variant needs a string id' };
+    }
+    if (!isStock(e.stock)) return { ok: false, error: 'variant stock must be an integer >= 0' };
+    const item: VariantStockInput = { id: e.id, stock: e.stock };
+    if (e.expectedStock !== undefined) {
+      if (!isStock(e.expectedStock)) {
+        return { ok: false, error: 'variant expectedStock must be an integer >= 0' };
+      }
+      item.expectedStock = e.expectedStock;
+    }
+    out.push(item);
+  }
+  return { ok: true, value: out };
+}
+
 export function validateProductInput(
   body: unknown,
   partial: boolean,
-): { ok: true; value: Partial<ProductInput> } | { ok: false; error: string } {
+): { ok: true; value: Partial<ProductInput> & { variants?: VariantInput[] } } | { ok: false; error: string } {
   if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
-  const out: Partial<ProductInput> = {};
+  const out: Partial<ProductInput> & { variants?: VariantInput[] } = {};
   const has = (k: string) => body[k] !== undefined;
 
-  const required = ['name', 'category', 'price', 'images', 'sizes', 'colors', 'stock'];
+  // With explicit variants the total comes from them, so stock is not needed.
+  const required = ['name', 'category', 'price', 'images', 'sizes', 'colors'];
+  if (!has('variants')) required.push('stock');
   if (!partial) {
     for (const k of required) {
       if (!has(k)) return { ok: false, error: `${k} is required` };
@@ -52,10 +106,10 @@ export function validateProductInput(
     out.name = n;
   }
   if (has('category')) {
-    if (typeof body.category !== 'string' || !CATEGORIES.includes(body.category as Category)) {
-      return { ok: false, error: `category must be one of: ${CATEGORIES.join(', ')}` };
+    if (typeof body.category !== 'string' || !CATEGORY_ID_RE.test(body.category)) {
+      return { ok: false, error: CATEGORY_ID_ERROR };
     }
-    out.category = body.category as Category;
+    out.category = body.category;
   }
   if (has('price')) {
     const p = body.price;
@@ -97,10 +151,40 @@ export function validateProductInput(
   }
   if (has('stock')) {
     const s = body.stock;
-    if (typeof s !== 'number' || !Number.isInteger(s) || s < 0) {
+    if (!isStock(s)) {
       return { ok: false, error: 'stock must be an integer >= 0' };
     }
     out.stock = s;
+  }
+  if (has('active')) {
+    if (typeof body.active !== 'boolean') return { ok: false, error: 'active must be true or false' };
+    if (partial) out.active = body.active;
+  }
+  if (!partial && has('variants')) {
+    const r = validateNewVariants(body.variants);
+    if (!r.ok) return r;
+    out.variants = r.value;
+  }
+  return { ok: true, value: out };
+}
+
+export function validateCategoryBody(
+  body: unknown,
+): Result<{ name: string; sort?: number; active?: boolean }> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (name === '' || name.length > 80) return { ok: false, error: 'name must be a non-empty string up to 80 characters' };
+  const out: { name: string; sort?: number; active?: boolean } = { name };
+  if (body.sort !== undefined) {
+    const s = body.sort;
+    if (typeof s !== 'number' || !Number.isInteger(s) || Math.abs(s) > 1_000_000) {
+      return { ok: false, error: 'sort must be a whole number' };
+    }
+    out.sort = s;
+  }
+  if (body.active !== undefined) {
+    if (typeof body.active !== 'boolean') return { ok: false, error: 'active must be true or false' };
+    out.active = body.active;
   }
   return { ok: true, value: out };
 }

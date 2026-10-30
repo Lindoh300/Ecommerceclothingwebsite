@@ -3,25 +3,38 @@
 /* Type */
 .display {
   font-family: var(--font-display);
-  font-weight: 700;
-  text-transform: uppercase;
-  line-height: 0.96;
-  letter-spacing: -0.04em;
+  font-weight: var(--heading-weight);
+  text-transform: var(--heading-case);
+  line-height: var(--heading-leading);
+  letter-spacing: var(--heading-tracking);
 }
+/* Heading pieces for elements that keep their own size and line height */
+.h-case { text-transform: var(--heading-case); }
+.h-track { letter-spacing: var(--heading-tracking); }
+.h-track-xl { letter-spacing: calc(var(--heading-tracking) * 1.25); }
+.h-track-sm { letter-spacing: calc(var(--heading-tracking) * 0.625); }
+.h-weight { font-weight: var(--heading-weight); }
+.h-lead-open { line-height: calc(var(--heading-leading) + 0.04); }
+.h-lead-tight { line-height: calc(var(--heading-leading) - 0.06); }
+/* Labels: nav, footer links, small caps text */
+.caps { text-transform: var(--label-case); }
+.caps-track { text-transform: var(--label-case); letter-spacing: var(--label-tracking); }
+/* Corner radius from the theme */
+.r-card { border-radius: var(--radius-card); }
 .h-sec { font-size: clamp(40px, 6.6vw, 96px); }
 .h-mid { font-size: clamp(36px, 5vw, 64px); }
 .hand {
   font-family: var(--font-script);
   color: var(--prism);
   font-size: 28px;
-  text-transform: uppercase;
+  text-transform: var(--heading-case);
   line-height: 1;
 }
 .micro {
   font-family: var(--font-body);
   font-size: 14px;
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+  text-transform: var(--label-case);
 }
 
 /* Link with a rule under it */
@@ -32,8 +45,8 @@
   gap: 6px;
   padding: 2px 0 4px;
   font-size: 14px;
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+  text-transform: var(--label-case);
   width: fit-content;
 }
 .linkr::after {
@@ -58,7 +71,7 @@
 
 .ticker--big { padding-block: 24px; }
 .ticker--big .ticker-track { animation-duration: 50s; align-items: center; }
-.ticker--big .word { font-family: var(--font-display); font-weight: 700; text-transform: uppercase; font-size: clamp(36px, 5vw, 64px); line-height: 0.96; letter-spacing: -0.04em; flex-shrink: 0; }
+.ticker--big .word { font-family: var(--font-display); font-weight: var(--heading-weight); text-transform: var(--heading-case); font-size: clamp(36px, 5vw, 64px); line-height: var(--heading-leading); letter-spacing: var(--heading-tracking); flex-shrink: 0; }
 .ticker--big .swatch { width: 75px; height: 56px; background: var(--prism); flex-shrink: 0; }
 .ticker--big .sep { width: 96px; height: 1px; background: var(--b10); flex-shrink: 0; }
 
@@ -67,7 +80,7 @@
   position: relative;
   display: grid;
   overflow: hidden;
-  background: var(--g4);
+  background: var(--art-4);
   grid-template-columns: repeat(var(--cols, 6), calc(100% / var(--cols, 6)));
   grid-template-rows: repeat(var(--rows, 6), calc(100% / var(--rows, 6)));
   filter: url(#goo);
@@ -112,21 +125,21 @@
   height: 48px;
   padding: 0 28px;
   background: var(--ink);
-  color: #fff;
+  color: var(--paper);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-button);
   font-family: var(--font-body);
-  font-weight: 600;
+  font-weight: var(--button-weight);
   font-size: 14px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: var(--button-tracking);
+  text-transform: var(--button-case);
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
   transition: background 0.3s;
   -webkit-tap-highlight-color: transparent;
 }
-.cta:hover, .cta:focus-visible { background: var(--prism); }
+.cta:hover, .cta:focus-visible { background: var(--prism); color: var(--ink-on-accent); }
 .cta:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {

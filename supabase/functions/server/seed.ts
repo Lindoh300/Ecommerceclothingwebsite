@@ -1,6 +1,6 @@
-import type { KvLike, Product, ProductInput } from './types.ts';
+import type { Category, CategoryStore, ProductInput, ProductStore } from './types.ts';
 
-export const SEED_PRODUCTS: ProductInput[] = [
+export const SEED_PRODUCTS: Omit<ProductInput, 'active'>[] = [
   {
     name: 'Classic Cotton T-Shirt',
     category: 'tshirts',
@@ -53,19 +53,25 @@ export const SEED_PRODUCTS: ProductInput[] = [
   },
 ];
 
-export async function ensureSeeded(kv: KvLike): Promise<void> {
-  if (await kv.get('meta:seeded')) return;
+export const SEED_CATEGORIES: Category[] = [
+  { id: 'tshirts', name: 'T-Shirts', sort: 1, active: true },
+  { id: 'jerseys', name: 'Jerseys', sort: 2, active: true },
+  { id: 'shorts', name: 'Shorts', sort: 3, active: true },
+  { id: 'pants', name: 'Pants', sort: 4, active: true },
+  { id: 'accessories', name: 'Accessories', sort: 5, active: true },
+];
+
+// For dev.ts and tests only. Production data lives in Postgres (the catalogue
+// migration copies the old products over); the edge function must never seed.
+export async function seedCatalogue(categories: CategoryStore, products: ProductStore): Promise<void> {
+  for (const c of SEED_CATEGORIES) await categories.upsert(c);
   const base = Date.parse('2024-01-01T00:00:00.000Z');
   for (let i = 0; i < SEED_PRODUCTS.length; i++) {
-    const input = SEED_PRODUCTS[i];
-    const id = String(i + 1);
-    const product: Product = {
-      ...input,
-      id,
-      image: input.images[0] ?? '',
+    const r = await products.create({
+      ...SEED_PRODUCTS[i],
+      id: String(i + 1),
       createdAt: new Date(base + i * 1000).toISOString(),
-    };
-    await kv.set(`product:${id}`, product);
+    });
+    if (!r.ok) throw new Error(`seed failed: ${r.reason}`);
   }
-  await kv.set('meta:seeded', true);
 }

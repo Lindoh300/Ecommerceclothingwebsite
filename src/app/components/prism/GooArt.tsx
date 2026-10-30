@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-/* weighted: mostly violets, the accent pink, and orange as the one warm note */
-const PALETTE = ["#561ccd", "#a169e9", "#361bec", "#100091", "#561ccd", "#361bec", "#a169e9", "#ff4081", "#ff4081", "#fc7f0c"];
+/* weighted: mostly the cool tones, the accent, and one warm note; colours come from the --art-n theme tokens */
+const PALETTE = [1, 2, 3, 4, 1, 3, 2, 6, 6, 5].map((n) => `var(--art-${n})`);
 const SHAPES = ["", "s1", "s2", "s3", "s4", "s5"];
 
 type Rand = () => number;

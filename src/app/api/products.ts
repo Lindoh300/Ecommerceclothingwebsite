@@ -1,10 +1,16 @@
 import { ApiError, apiFetch } from './client'
-import type { CartQuote, CartQuoteItem, Product, ProductInput } from './types'
+import type { CartQuote, CartQuoteItem, Product, ProductInput, VariantStockUpdate } from './types'
 
 export function listProducts(): Promise<Product[]> {
   return apiFetch<Product[]>('/products')
 }
 
+/** Admin: every product, inactive ones included. */
+export function listAllProducts(): Promise<Product[]> {
+  return apiFetch<Product[]>('/products?all=1', { admin: true })
+}
+
+/** `id` may also be a slug. */
 export async function getProduct(id: string): Promise<Product | null> {
   try {
     return await apiFetch<Product>(`/products/${encodeURIComponent(id)}`)
@@ -21,9 +27,11 @@ export function createProduct(input: ProductInput): Promise<Product> {
 export function updateProduct(
   id: string,
   patch: Partial<ProductInput>,
-  expectedStock?: number,
+  options: { variants?: VariantStockUpdate[]; expectedStock?: number } = {},
 ): Promise<Product> {
-  const body = expectedStock === undefined ? patch : { ...patch, expectedStock }
+  const body: Record<string, unknown> = { ...patch }
+  if (options.variants && options.variants.length > 0) body.variants = options.variants
+  if (options.expectedStock !== undefined) body.expectedStock = options.expectedStock
   return apiFetch<Product>(`/products/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body,

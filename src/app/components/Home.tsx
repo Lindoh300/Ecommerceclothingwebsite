@@ -1,24 +1,14 @@
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { useProducts } from "../hooks/useProducts";
+import { useCategories } from "../hooks/useCategories";
+import { categoryPath } from "../utils/categoryPath";
 import { ProductCard } from "./ProductCard";
 import { GooArt, LoadState, Ticker } from "./prism";
 
-const categories = [
-  { name: "T-Shirts", path: "/tshirts" },
-  { name: "Jerseys", path: "/jerseys" },
-  { name: "Shorts", path: "/shorts" },
-  { name: "Pants", path: "/pants" },
-  { name: "Accessories", path: "/accessories" },
-];
-
-const tickerItems = [
+const tickerItems = (categoryNames: string[]) => [
   "Premium quality clothing",
-  "T-Shirts",
-  "Jerseys",
-  "Shorts",
-  "Pants",
-  "Accessories",
+  ...categoryNames,
   "Order on WhatsApp",
   "Delivery across South Africa",
 ];
@@ -34,21 +24,23 @@ const heroMetas = [
 
 export function Home() {
   const { products, loading, error, reload } = useProducts();
+  const { categories, loading: categoriesLoading, error: categoriesError, reload: reloadCategories } = useCategories();
   const featuredProducts = products.slice(0, 100);
+  const firstCategory = categories[0];
 
   return (
     <div className="min-h-screen overflow-x-hidden">
       {/* Hero */}
       <section className="relative px-6 py-6 md:py-20">
         {heroMetas.map((m) => (
-          <div key={m.label} className={`hidden md:flex absolute z-10 flex-col uppercase ${m.pos}`}>
+          <div key={m.label} className={`hidden md:flex absolute z-10 flex-col caps ${m.pos}`}>
             <small className="text-xs">{m.label}</small>
             <strong className="text-lg font-normal">{m.value}</strong>
           </div>
         ))}
         <div className="max-w-[1280px] mx-auto flex justify-center md:px-[8vw]">
-          <div className="relative inline-block leading-[0.9] text-[clamp(72px,20vw,300px)]">
-            <h1 className="font-display font-bold uppercase leading-[0.9] tracking-[-0.04em] text-[1em]">
+          <div className="relative inline-block h-lead-tight text-[clamp(72px,20vw,300px)]">
+            <h1 className="display h-lead-tight text-[1em]">
               <span className="sr-only">4Nguru The Brand Online</span>
               <span aria-hidden="true">4NGURU</span>
             </h1>
@@ -63,7 +55,7 @@ export function Home() {
         </div>
       </section>
 
-      <Ticker items={tickerItems} />
+      <Ticker items={tickerItems(categories.map((c) => c.name))} />
 
       {/* Hero art */}
       <section className="px-6 pt-6">
@@ -71,7 +63,7 @@ export function Home() {
           <GooArt variant="hero" cols={12} rows={6} resampleMs={7000} />
           <span className="micro absolute bottom-4 left-4 bg-paper text-ink px-3 py-2">Click to resample</span>
           <div className="absolute bottom-4 right-4">
-            <Link to="/tshirts" className="cta">Shop now</Link>
+            {firstCategory && <Link to={categoryPath(firstCategory.id)} className="cta">Shop now</Link>}
           </div>
         </div>
       </section>
@@ -83,21 +75,23 @@ export function Home() {
             <p className="micro text-b60">01 / Categories</p>
             <h2 className="display h-mid">Shop by category</h2>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            {categories.map((cat) => (
-              <Link key={cat.path} to={cat.path} className="group block">
-                <div className="aspect-square overflow-hidden">
-                  <GooArt variant="tile" cols={4} rows={4} seed={cat.path} />
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="font-display uppercase text-xl">{cat.name}</span>
-                  <span className="linkr" aria-hidden="true">
-                    <ArrowRight />
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <LoadState loading={categoriesLoading} error={categoriesError} onRetry={() => reloadCategories().catch(() => {})}>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              {categories.map((cat) => (
+                <Link key={cat.id} to={categoryPath(cat.id)} className="group block">
+                  <div className="aspect-square overflow-hidden">
+                    <GooArt variant="tile" cols={4} rows={4} seed={cat.id} />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <span className="font-display h-case text-xl">{cat.name}</span>
+                    <span className="linkr" aria-hidden="true">
+                      <ArrowRight />
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </LoadState>
         </div>
       </section>
 

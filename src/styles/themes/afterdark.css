@@ -1,0 +1,59 @@
+/* After Dark: a dark, high-contrast theme with an acid-lime accent.
+   Values come from the After Dark block of the design prototype.
+   Applies when <html data-theme="afterdark"> is set (VITE_THEME=afterdark). */
+@import url("https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap");
+
+[data-theme="afterdark"] {
+  /* Colour */
+  --paper: #0b0b0c;
+  --b5: #161618;
+  --ink: #f4f4f0;
+  --b60: #a6a6a1;
+  --b10: #34343a;
+  --prism: #c6ff00;
+  --ink-on-accent: #0b0b0c;
+  --focus: #00e5ff;
+  --status-low: #ffb02e;
+  --destructive: #ff7b7b;
+  --destructive-foreground: #0b0b0c;
+  --input-background: #161618;
+  --secondary: #161618;
+  --secondary-foreground: #f4f4f0;
+  --accent: #26262a;
+  --accent-foreground: #f4f4f0;
+  --switch-background: #34343a;
+  --scrim: #000000;
+  --on-scrim: #ffffff;
+
+  /* Generative art */
+  --art-1: #c6ff00;
+  --art-2: #ff2bd6;
+  --art-3: #00e5ff;
+  --art-4: #6d28ff;
+  --art-5: #ff5a1f;
+  --art-6: #f4f4f0;
+  --panel: #161618;
+  --panel-fg: #f4f4f0;
+
+  /* Type */
+  --font-display: "Anton", "Archivo Black", Impact, sans-serif;
+  --font-body: "Archivo", system-ui, sans-serif;
+  --font-code: "Space Mono", ui-monospace, monospace;
+  --font-script: "Space Mono", ui-monospace, monospace;
+  --heading-case: uppercase;
+  --heading-tracking: 0.005em;
+  --heading-leading: 0.92;
+  --heading-weight: 400;
+  --label-case: uppercase;
+  --label-tracking: 0.08em;
+  --button-case: uppercase;
+  --button-tracking: 0.08em;
+  --button-weight: 700;
+
+  /* Shape */
+  --radius: 0px;
+  --radius-card: 0px;
+  --radius-button: 0px;
+
+  color-scheme: dark;
+}

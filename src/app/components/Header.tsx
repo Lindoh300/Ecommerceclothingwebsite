@@ -2,6 +2,8 @@ import { Link, NavLink } from "react-router";
 import { ShoppingCart, Menu, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getCartCount } from "../utils/storage";
+import { useCategories } from "../hooks/useCategories";
+import { categoryPath } from "../utils/categoryPath";
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -18,12 +20,10 @@ export function Header() {
     };
   }, []);
 
+  // If categories fail to load the nav still renders, with just About.
+  const { categories: managed } = useCategories();
   const categories = [
-    { name: 'T-Shirts', path: '/tshirts' },
-    { name: 'Jerseys', path: '/jerseys' },
-    { name: 'Shorts', path: '/shorts' },
-    { name: 'Pants', path: '/pants' },
-    { name: 'Accessories', path: '/accessories' },
+    ...managed.map((c) => ({ name: c.name, path: categoryPath(c.id) })),
     { name: 'About', path: '/about' },
   ];
 
@@ -59,7 +59,7 @@ export function Header() {
               to={cat.path}
               className={({ isActive }) =>
                 [
-                  'relative py-1 text-sm uppercase tracking-[0.01em] text-ink transition-opacity hover:opacity-60',
+                  'relative py-1 text-sm caps-track text-ink transition-opacity hover:opacity-60',
                   isActive
                     ? "after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:bg-prism after:content-['']"
                     : '',
@@ -76,7 +76,7 @@ export function Header() {
           <Link to="/cart" aria-label="Cart" className="relative text-ink transition-opacity hover:opacity-60">
             <ShoppingCart className="h-6 w-6" />
             {cartCount > 0 && (
-              <span className="absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center bg-prism px-1 font-mono text-[10px] leading-none text-white">
+              <span className="absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center bg-prism px-1 font-mono text-[10px] leading-none text-on-accent">
                 {cartCount}
               </span>
             )}
@@ -103,7 +103,7 @@ export function Header() {
               key={cat.path}
               to={cat.path}
               className={({ isActive }) =>
-                `block border-b border-b10 py-5 font-display text-3xl uppercase leading-none text-ink ${isActive ? 'text-prism' : ''}`
+                `block border-b border-b10 py-5 font-display h-case text-3xl leading-none text-ink ${isActive ? 'text-prism' : ''}`
               }
               onClick={() => setMobileMenuOpen(false)}
             >

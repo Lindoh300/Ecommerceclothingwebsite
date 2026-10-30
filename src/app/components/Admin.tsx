@@ -1,63 +1,28 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { Plus, Edit, Trash2, Save, X, Lock } from "lucide-react";
+import { Plus, Edit, Trash2, Lock } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Textarea } from "./ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { ApiError } from "../api/client";
-import { createProduct, updateProduct, deleteProduct, uploadImage } from "../api/products";
-import type { Category, Product, ProductInput } from "../api/types";
-import { useProducts, loadProducts } from "../hooks/useProducts";
+import { deleteProduct, listAllProducts } from "../api/products";
+import { listCategories } from "../api/categories";
+import type { Category, Product } from "../api/types";
+import { loadProducts } from "../hooks/useProducts";
+import { loadCategories } from "../hooks/useCategories";
 import { AdminOrders } from "./AdminOrders";
+import { AdminCategories } from "./AdminCategories";
+import { AdminProductForm } from "./AdminProductForm";
 
 // Local dev server: no Supabase, but an API base. Writes use the dev-admin token.
 const devMode = !isSupabaseConfigured && !!import.meta.env.VITE_API_BASE;
 
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-
-interface FormState {
-  name: string;
-  category: Category;
-  price: number;
-  description: string;
-  images: string[];
-  sizes: string; // comma-separated text, parsed on submit
-  colors: string; // comma-separated text, parsed on submit
-  stock: number;
-}
-
-const emptyForm = (): FormState => ({
-  name: "",
-  category: "tshirts",
-  price: 0,
-  description: "",
-  images: ["", "", ""],
-  sizes: "S, M, L, XL",
-  colors: "Black, White",
-  stock: 0,
-});
-
-const splitList = (text: string): string[] =>
-  text.split(",").map((s) => s.trim()).filter((s) => s);
-
-const isHttpUrl = (value: string): boolean => {
-  try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
-
 function AdminNotice({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-paper flex items-center justify-center py-16 px-6">
-      <div className="max-w-md w-full border border-b10 p-8 md:p-10 text-center">
+      <div className="max-w-md w-full border border-b10 r-card p-8 md:p-10 text-center">
         <Lock className="w-6 h-6 text-ink mx-auto mb-6" />
         <h1 className="display h-mid mb-4">Admin</h1>
         {children}
@@ -143,7 +108,7 @@ export function Admin() {
   if (!session) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center py-16 px-6">
-        <div className="max-w-md w-full border border-b10 p-8 md:p-10">
+        <div className="max-w-md w-full border border-b10 r-card p-8 md:p-10">
           <div className="text-center mb-8">
             <Lock className="w-6 h-6 text-ink mx-auto mb-6" />
             <h1 className="display h-mid mb-4">Admin</h1>
@@ -210,18 +175,16 @@ interface AdminPanelProps {
 }
 
 function AdminPanel({ email, onSignOut }: AdminPanelProps) {
-  const { products, loading, error, reload } = useProducts();
-  const [editing, setEditing] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [formData, setFormData] = useState<FormState>(emptyForm());
-  const [uploading, setUploading] = useState<boolean[]>([false, false, false]);
+  // Admin lists include inactive products and categories, so they are kept apart from the shop's cache.
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
+  // null = form closed, "new" = adding, otherwise the product being edited.
+  const [formFor, setFormFor] = useState<Product | "new" | null>(null);
   const [busy, setBusy] = useState(false);
-  // Bumped whenever the form is reset or switched, so a late upload result is not applied to a different form.
-  const formGeneration = useRef(0);
-  // Stock the product had when its edit form was opened. Used to send stock only when the admin changes it.
-  const loadedStock = useRef<number | null>(null);
-
-  const isUploading = uploading.some(Boolean);
 
   const handleApiError = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401 && onSignOut) {
@@ -234,163 +197,55 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
     }
   };
 
-  const setImage = (index: number, value: string) => {
-    setFormData((prev) => {
-      const images = [...prev.images];
-      images[index] = value;
-      return { ...prev, images };
-    });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (busy || isUploading) return;
-
-    const name = formData.name.trim();
-    const sizes = splitList(formData.sizes);
-    const colors = splitList(formData.colors);
-    const price = Number(formData.price);
-    const stock = Number(formData.stock);
-    const images = formData.images.map((u) => u.trim());
-
-    if (!name) {
-      toast.error("Product name is required");
-      return;
-    }
-    if (sizes.length === 0) {
-      toast.error("Add at least one size");
-      return;
-    }
-    if (colors.length === 0) {
-      toast.error("Add at least one colour");
-      return;
-    }
-    if (!Number.isFinite(price) || price < 0) {
-      toast.error("Price must be a number of 0 or more");
-      return;
-    }
-    if (!Number.isInteger(stock) || stock < 0) {
-      toast.error("Stock must be a whole number of 0 or more");
-      return;
-    }
-    if (images.some((u) => u !== "" && !isHttpUrl(u))) {
-      toast.error("Image URLs must start with http:// or https://");
-      return;
-    }
-
-    const input: ProductInput = {
-      name,
-      category: formData.category,
-      price,
-      description: formData.description,
-      images,
-      sizes,
-      colors,
-      stock,
-    };
-
-    setBusy(true);
+  // Returns the fresh list, or null if it could not be loaded.
+  const refreshProducts = useCallback(async (): Promise<Product[] | null> => {
+    setLoading(true);
+    setError(null);
     try {
-      if (editing) {
-        const stockChanged = loadedStock.current === null || stock !== loadedStock.current;
-        if (stockChanged) {
-          // The admin changed stock: send it, guarded by the value the form was loaded with.
-          await updateProduct(editing, input, loadedStock.current ?? undefined);
-        } else {
-          // Stock untouched: leave it out so orders placed meanwhile are not overwritten.
-          const { stock: _unchanged, ...rest } = input;
-          await updateProduct(editing, rest);
-        }
-      } else {
-        await createProduct(input);
-      }
-      await loadProducts(true);
-      toast.success(editing ? "Product updated successfully" : "Product added successfully");
-      handleCancel();
+      const list = await listAllProducts();
+      setProducts(list);
+      return list;
     } catch (err) {
-      const currentStock =
-        err instanceof ApiError && err.status === 409
-          ? (err.body as { stock?: unknown } | undefined)?.stock
-          : undefined;
-      if (editing && typeof currentStock === "number") {
-        toast.error("Stock changed", {
-          description: `An order came in while you were editing. Stock is now ${currentStock}. Check the number and save again.`,
-        });
-        loadedStock.current = currentStock;
-        setFormData((prev) => ({ ...prev, stock: currentStock }));
-        try {
-          await loadProducts(true);
-        } catch (refreshErr) {
-          handleApiError(refreshErr);
-        }
-      } else {
-        handleApiError(err);
-      }
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      return null;
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const handleEdit = (product: Product) => {
-    formGeneration.current += 1;
-    // Copy the array: product comes from the shared cache and must not be mutated.
-    const images = (product.images?.length ? [...product.images] : [product.image]).slice(0, 3);
-    while (images.length < 3) images.push("");
-    setEditing(product.id);
-    loadedStock.current = product.stock;
-    setFormData({
-      name: product.name,
-      category: product.category,
-      price: product.price,
-      description: product.description,
-      images,
-      sizes: product.sizes.join(", "),
-      colors: product.colors.join(", "),
-      stock: product.stock,
-    });
-    setUploading([false, false, false]);
-    setAdding(false);
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
-    const input = e.target;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      toast.error("Image must be a JPEG, PNG, WebP or GIF file");
-      return;
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      toast.error("Image size should be less than 2MB");
-      return;
-    }
-
-    const generation = formGeneration.current;
-    const setSlot = (value: boolean) =>
-      setUploading((prev) => prev.map((v, i) => (i === index ? value : v)));
-
-    setSlot(true);
+  const refreshCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    setCategoriesError(null);
     try {
-      const url = await uploadImage(file);
-      if (generation !== formGeneration.current) return;
-      setImage(index, url);
-      toast.success(`Image ${index + 1} uploaded successfully`);
+      setCategories(await listCategories(true));
     } catch (err) {
-      if (generation === formGeneration.current) handleApiError(err);
+      setCategoriesError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
-      if (generation === formGeneration.current) setSlot(false);
+      setCategoriesLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    refreshProducts().catch(() => {});
+    refreshCategories().catch(() => {});
+  }, [refreshProducts, refreshCategories]);
+
+  // After a product change: the admin list and the shop's cache both reload.
+  const reloadProducts = async () => {
+    const list = await refreshProducts();
+    await loadProducts(true).catch(() => {});
+    if (!list) throw new Error("Couldn't reload products");
   };
 
-  const handleCancel = () => {
-    formGeneration.current += 1;
-    loadedStock.current = null;
-    setEditing(null);
-    setAdding(false);
-    setUploading([false, false, false]);
-    setFormData(emptyForm());
+  const reloadCategories = async () => {
+    await refreshCategories();
+    await loadCategories(true).catch(() => {});
+  };
+
+  const handleEdit = async (product: Product) => {
+    // Open with fresh stock: an order may have come in since the list was loaded.
+    const list = await refreshProducts();
+    setFormFor(list?.find((p) => p.id === product.id) ?? product);
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -399,10 +254,8 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
     setBusy(true);
     try {
       await deleteProduct(id);
-      await loadProducts(true);
-      if (editing === id) {
-        handleCancel();
-      }
+      await reloadProducts();
+      if (typeof formFor === "object" && formFor?.id === id) setFormFor(null);
       toast.success(`Deleted ${name}`);
     } catch (err) {
       handleApiError(err);
@@ -410,6 +263,9 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
       setBusy(false);
     }
   };
+
+  const categoryName = (id: string) => categories.find((c) => c.id === id)?.name ?? id;
+  const editing = typeof formFor === "object" ? formFor : null;
 
   return (
     <div className="min-h-screen bg-paper">
@@ -433,182 +289,36 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
             <h1 className="display h-sec">Admin Panel</h1>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => setAdding(true)} disabled={adding || editing !== null}>
+            <Button onClick={() => setFormFor("new")} disabled={formFor !== null}>
               <Plus className="w-4 h-4 mr-2" />
               Add Product
             </Button>
           </div>
         </div>
 
-        {/* Add/Edit Form */}
-        {(adding || editing) && (
-          <div className="border border-b10 p-6 md:p-8 mb-16">
-            <h2 className="display h-mid mb-8">{editing ? 'Edit Product' : 'Add New Product'}</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="name">Product Name</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(value) => setFormData({ ...formData, category: value as Category })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="tshirts">T-Shirts</SelectItem>
-                      <SelectItem value="jerseys">Jerseys</SelectItem>
-                      <SelectItem value="shorts">Shorts</SelectItem>
-                      <SelectItem value="pants">Pants</SelectItem>
-                      <SelectItem value="accessories">Accessories</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="price">Price (R)</Label>
-                  <Input
-                    id="price"
-                    type="number"
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
-                    required
-                    min="0"
-                    step="0.01"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="stock">Stock</Label>
-                  <Input
-                    id="stock"
-                    type="number"
-                    value={formData.stock}
-                    onChange={(e) => setFormData({ ...formData, stock: Number(e.target.value) })}
-                    required
-                    min="0"
-                    step="1"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <div className="flex flex-wrap justify-between items-end gap-2 mb-1">
-                    <Label>Product Images (Max 3)</Label>
-                    <span className="font-mono text-[11px] text-b60 border border-b10 px-2 py-1">
-                      JPEG, PNG, WebP or GIF, up to 2MB each
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-                    {[0, 1, 2].map((index) => (
-                      <div key={index} className="space-y-2">
-                        <Label htmlFor={`imageFile-${index}`} className="text-xs text-b60">
-                          Image {index + 1} {index === 0 && '(Main)'}
-                        </Label>
-                        <div className="flex flex-col gap-2">
-                          <Input
-                            id={`imageFile-${index}`}
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp,image/gif"
-                            onChange={(e) => handleImageUpload(e, index)}
-                            disabled={uploading[index]}
-                            className="text-xs"
-                          />
-                          <Input
-                            value={formData.images[index] ?? ""}
-                            onChange={(e) => setImage(index, e.target.value)}
-                            placeholder="Or image URL"
-                            className="text-xs"
-                          />
-                          {uploading[index] && (
-                            <div className="aspect-square border border-b10 bg-b5 flex items-center justify-center font-mono text-xs text-b60">
-                              Uploading…
-                            </div>
-                          )}
-                          {!uploading[index] && formData.images[index] && (
-                            <div className="aspect-square border border-b10 overflow-hidden bg-b5 relative group">
-                              <img
-                                src={formData.images[index]}
-                                alt={`Preview ${index + 1}`}
-                                className="w-full h-full object-cover"
-                                onLoad={(e) => {
-                                  e.currentTarget.style.visibility = "visible";
-                                }}
-                                onError={(e) => {
-                                  e.currentTarget.style.visibility = "hidden";
-                                }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setImage(index, "")}
-                                aria-label={`Remove image ${index + 1}`}
-                                className="absolute top-1 right-1 bg-ink text-paper hover:bg-prism p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="sizes">Sizes (comma-separated)</Label>
-                  <Input
-                    id="sizes"
-                    value={formData.sizes}
-                    onChange={(e) => setFormData({ ...formData, sizes: e.target.value })}
-                    placeholder="S, M, L, XL"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="colors">Colors (comma-separated)</Label>
-                  <Input
-                    id="colors"
-                    value={formData.colors}
-                    onChange={(e) => setFormData({ ...formData, colors: e.target.value })}
-                    placeholder="Black, White, Blue"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button type="submit" disabled={busy || isUploading}>
-                  <Save className="w-4 h-4 mr-2" />
-                  {busy ? "Saving…" : "Save Product"}
-                </Button>
-                <Button type="button" variant="outline" onClick={handleCancel}>
-                  <X className="w-4 h-4 mr-2" />
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </div>
+        {/* Add/Edit Form. The key gives each product its own form state. */}
+        {formFor !== null && (
+          <AdminProductForm
+            key={editing ? editing.id : "new"}
+            product={editing}
+            categories={categories}
+            categoriesError={categoriesError}
+            onRetryCategories={() => refreshCategories().catch(() => {})}
+            onReload={reloadProducts}
+            onClose={() => setFormFor(null)}
+            onApiError={handleApiError}
+          />
         )}
 
         {/* Products List */}
-        <div className="border border-b10 overflow-x-auto">
+        <div className="border border-b10 r-card overflow-x-auto">
           {loading && products.length === 0 && (
             <p className="px-6 py-4 micro text-b60">Loading products…</p>
           )}
           {error && (
             <div className="px-6 py-4 flex flex-wrap items-center gap-4">
               <p className="text-b60">Couldn't load products: {error}</p>
-              <Button variant="outline" onClick={() => reload().catch(() => {})}>
+              <Button variant="outline" onClick={() => refreshProducts().catch(() => {})}>
                 Retry
               </Button>
             </div>
@@ -625,7 +335,7 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
             </thead>
             <tbody className="divide-y divide-b10">
               {products.map((product) => (
-                <tr key={product.id}>
+                <tr key={product.id} className={product.active ? "" : "bg-b5"}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <img
@@ -639,27 +349,29 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
                           e.currentTarget.style.visibility = "hidden";
                         }}
                       />
-                      <div className="ml-4 text-ink">
+                      <div className={`ml-4 ${product.active ? "text-ink" : "text-b60"}`}>
                         <div>{product.name}</div>
+                        {!product.active && <div className="micro text-prism">Inactive</div>}
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap micro text-b60">{product.category}</td>
+                  <td className="px-6 py-4 whitespace-nowrap micro text-b60">{categoryName(product.category)}</td>
                   <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">R{product.price}</td>
                   <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">{product.stock}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleEdit(product)}
-                        aria-label="Edit product"
-                        className="p-1 text-ink hover:text-prism transition-colors"
+                        onClick={() => handleEdit(product).catch(() => {})}
+                        disabled={formFor !== null}
+                        aria-label={`Edit ${product.name}`}
+                        className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
                       >
                         <Edit className="w-6 h-6" />
                       </button>
                       <button
                         onClick={() => handleDelete(product.id, product.name)}
                         disabled={busy}
-                        aria-label="Delete product"
+                        aria-label={`Delete ${product.name}`}
                         className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
                       >
                         <Trash2 className="w-6 h-6" />
@@ -670,6 +382,16 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-16">
+          <AdminCategories
+            categories={categories}
+            loading={categoriesLoading}
+            error={categoriesError}
+            onChanged={reloadCategories}
+            onApiError={handleApiError}
+          />
         </div>
 
         <div className="mt-16">

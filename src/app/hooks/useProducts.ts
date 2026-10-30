@@ -54,8 +54,9 @@ export function getCachedProducts(): Product[] {
   return state.products
 }
 
-export function getCachedProduct(id: string): Product | undefined {
-  return state.products.find((p) => p.id === id)
+/** By id or slug. */
+export function getCachedProduct(idOrSlug: string): Product | undefined {
+  return state.products.find((p) => p.id === idOrSlug) ?? state.products.find((p) => p.slug === idOrSlug)
 }
 
 export function setCachedProducts(products: Product[]): void {
@@ -91,6 +92,6 @@ export function useProduct(id: string | undefined): {
   error: string | null
 } {
   const snap = useProductsState()
-  const product = id ? snap.products.find((p) => p.id === id) : undefined
+  const product = id ? (snap.products.find((p) => p.id === id) ?? snap.products.find((p) => p.slug === id)) : undefined
   return { product, loading: snap.loading || (!snap.loaded && !snap.error), error: snap.error }
 }

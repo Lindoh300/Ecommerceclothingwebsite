@@ -1,36 +1,89 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #000000;
-  --primary-foreground: #ffffff;
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #f1f1f1;
-  --muted-foreground: #6b6b6b;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
+  /* ===== THEME TOKENS: the Prism defaults =====
+     Every colour, font, case, tracking and radius the storefront uses comes from here.
+     A rebrand is a block of these tokens: see src/styles/themes/afterdark.css. */
+
+  /* Colour */
+  --prism: #ff4081;            /* accent */
+  --ink-on-accent: #ffffff;    /* text on the accent colour */
+  --ink: #000000;              /* text, and the dark fill */
+  --paper: #ffffff;            /* page background */
+  --b5: #f1f1f1;              /* faint surface */
+  --b10: #e5e5e5;             /* hairlines and borders */
+  --b60: #6b6b6b;             /* secondary text */
+  --focus: #ff4081;            /* focus ring */
+  --border: var(--b10);        /* default border colour */
+  --status-low: #ff4081;       /* low-stock marks */
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --border: #e5e5e5;
-  --input: transparent;
   --input-background: #f3f3f5;
+  --secondary: oklch(0.95 0.0058 264.53);
+  --secondary-foreground: #030213;
+  --accent: #e9ebef;
+  --accent-foreground: #030213;
   --switch-background: #cbced4;
+  --scrim: #000000;            /* dark overlay on photos */
+  --on-scrim: #ffffff;         /* text on that overlay */
+
+  /* Generative art palette (GooArt) */
+  --art-1: #561ccd;
+  --art-2: #a169e9;
+  --art-3: #361bec;
+  --art-4: #100091;            /* also the art's base fill */
+  --art-5: #fc7f0c;
+  --art-6: #ff4081;
+  --panel: #0d0a24;
+  --panel-fg: #ece9f7;
+
+  /* Type */
+  --font-display: "Asul", Georgia, serif;
+  --font-body: "Cabin", system-ui, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-script: "Covered By Your Grace", cursive;
+  --heading-case: uppercase;
+  --heading-tracking: -0.04em;
+  --heading-leading: 0.96;
+  --heading-weight: 700;
+  --label-case: uppercase;     /* .micro, nav, footer links, small labels */
+  --label-tracking: 0.01em;
+  --button-case: uppercase;    /* .cta */
+  --button-tracking: 0.04em;
+  --button-weight: 600;
+
+  /* Shape */
+  --radius: 0.25rem;           /* inputs, selects, small buttons */
+  --radius-card: 0px;          /* panels, tables, product tiles */
+  --radius-button: 999px;      /* .cta */
+
+  /* Base values that the shadcn/ui primitives read; they follow the tokens above */
+  --font-size: 16px;
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --muted: var(--b5);
+  --muted-foreground: var(--b60);
+  --input: transparent;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #ff4081;
+  --ring: var(--focus);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.25rem;
+  --g1: var(--art-1);
+  --g2: var(--art-2);
+  --g3: var(--art-3);
+  --g4: var(--art-4);
+  --g5: var(--art-5);
+  --g6: var(--art-6);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: #030213;
@@ -39,26 +92,6 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-
-  /* Prism design tokens */
-  --prism: #ff4081;
-  --ink: #000000;
-  --paper: #ffffff;
-  --b5: #f1f1f1;
-  --b10: #e5e5e5;
-  --b60: #6b6b6b;
-  --g1: #561ccd;
-  --g2: #a169e9;
-  --g3: #361bec;
-  --g4: #100091;
-  --g5: #fc7f0c;
-  --g6: #ff4081;
-  --panel: #0d0a24;
-  --panel-fg: #ece9f7;
-  --font-display: "Asul", Georgia, serif;
-  --font-body: "Cabin", system-ui, sans-serif;
-  --font-code: "IBM Plex Mono", ui-monospace, Menlo, monospace;
-  --font-script: "Covered By Your Grace", cursive;
 }
 
 .dark {
@@ -125,8 +158,8 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: max(0px, calc(var(--radius) - 4px));
+  --radius-md: max(0px, calc(var(--radius) - 2px));
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --color-sidebar: var(--sidebar);
@@ -138,6 +171,11 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-prism: var(--prism);
+  --color-on-accent: var(--ink-on-accent);
+  --color-focus: var(--focus);
+  --color-scrim: var(--scrim);
+  --color-on-scrim: var(--on-scrim);
+  --color-status-low: var(--status-low);
   --color-ink: var(--ink);
   --color-paper: var(--paper);
   --color-b5: var(--b5);
@@ -171,11 +209,11 @@
 
   ::selection {
     background: var(--prism);
-    color: #ffffff;
+    color: var(--ink-on-accent);
   }
 
   :focus-visible {
-    outline: 2px solid var(--prism);
+    outline: 2px solid var(--focus);
     outline-offset: 3px;
   }
 

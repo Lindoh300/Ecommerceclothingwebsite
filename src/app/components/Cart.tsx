@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router";
-import { getCart, removeFromCart, updateCartItem, clearCart, getCartQuantityForProduct, getAvailableStock } from "../utils/storage";
+import type { CartLine } from "../utils/storage";
+import { getCart, removeFromCart, updateCartItem, clearCart, getCartQuantityForVariant, findVariant, getVariantStock } from "../utils/storage";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ProductImage } from "./prism/ProductImage";
@@ -63,8 +64,20 @@ export function Cart() {
 
   const productsById = new Map(products.map((p) => [p.id, p]));
   const productsReady = !productsLoading && !productsError;
-  const isUnavailable = (productId: string) => productsReady && !productsById.has(productId);
-  const hasUnavailable = lines.some((line) => isUnavailable(line.productId));
+  // Gone product, or a variant (size and colour) that no longer exists.
+  const isUnavailable = (line: CartLine) => {
+    if (!productsReady) return false;
+    const product = productsById.get(line.productId);
+    return !product || !findVariant(product, line.size, line.color);
+  };
+  const hasUnavailable = lines.some(isUnavailable);
+  // Units of this line's variant that can be bought: the quote's figure, else the loaded product's.
+  const availableFor = (line: CartLine): number => {
+    const quoted = quote?.lines.find(
+      (q) => q.productId === line.productId && (q.size ?? "") === (line.size ?? "") && (q.color ?? "") === (line.color ?? "")
+    );
+    return quoted ? quoted.available : getVariantStock(line.productId, line.size, line.color);
+  };
   const total = quote?.total ?? 0;
 
   const handleUpdateQuantity = (index: number, quantity: number) => {
@@ -72,9 +85,9 @@ export function Cart() {
     const updated = updateCartItem(index, quantity);
     if (!updated) {
       const line = lines[index];
-      const available = getAvailableStock(line.productId);
+      const option = [line.size, line.color].filter(Boolean).join(", ");
       toast.error('Not enough stock', {
-        description: `Only ${available} available.`
+        description: `Only ${availableFor(line)} available${option ? ` in ${option}` : ""}.`
       });
       return;
     }
@@ -122,14 +135,14 @@ export function Cart() {
             <div className="border-t border-b10">
               {lines.map((item, index) => {
                 const product = productsById.get(item.productId);
-                const unavailable = isUnavailable(item.productId);
+                const unavailable = isUnavailable(item);
                 return (
                 <div key={`${item.productId}-${index}`} className="flex gap-6 py-6 border-b border-b10">
-                  <div className="w-24 h-24 shrink-0 bg-b5 overflow-hidden">
+                  <div className="w-24 h-24 shrink-0 bg-b5 overflow-hidden r-card">
                     <ProductImage src={product?.image} alt={product?.name ?? "Unavailable item"} seed={item.productId} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="uppercase font-display font-bold tracking-tight mb-1">{product?.name ?? (unavailable ? "Unavailable item" : "Loading…")}</h3>
+                    <h3 className="font-display h-weight h-case h-track-sm mb-1">{product?.name ?? (unavailable ? "Unavailable item" : "Loading…")}</h3>
                     <p className="micro text-b60 mb-2">
                       {item.size && `Size: ${item.size}`}
                       {item.size && item.color && ' | '}
@@ -161,7 +174,7 @@ export function Cart() {
                       <span className="w-8 text-center font-mono">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
-                        disabled={orderPlaced || unavailable || getCartQuantityForProduct(item.productId) >= getAvailableStock(item.productId, product?.stock ?? 0)}
+                        disabled={orderPlaced || unavailable || getCartQuantityForVariant(item.productId, item.size, item.color) >= availableFor(item)}
                         className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         +

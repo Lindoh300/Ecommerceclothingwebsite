@@ -77,7 +77,12 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
         const short = ((err.body as { short?: StockShortfall[] } | undefined)?.short ?? []);
         toast.error("Not enough stock", {
           description: short.length
-            ? short.map((s) => `${s.name}: only ${s.available} left`).join(", ")
+            ? short
+                .map((s) => {
+                  const option = [s.size, s.color].filter(Boolean).join(", ");
+                  return `${s.name}${option ? ` (${option})` : ""}: only ${s.available} left`;
+                })
+                .join(", ")
             : "Some items are no longer available in that quantity.",
         });
         onStockShort();
