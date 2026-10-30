@@ -103,9 +103,21 @@ export interface OrderStore {
   cancel(id: string): Promise<Order | null>;
 }
 
+export type UpdateProductResult =
+  | { ok: true; product: Product }
+  | { ok: false; reason: 'not_found' }
+  | { ok: false; reason: 'stock_changed'; stock: number };
+
+export interface ProductStore {
+  /** Merge `patch` into the stored product under a row lock. Stock is only changed when `patch.stock` is set;
+   *  then, if `expectedStock` is given and differs from the stored stock, nothing is written and 'stock_changed' is returned. */
+  update(id: string, patch: Partial<ProductInput>, expectedStock?: number): Promise<UpdateProductResult>;
+}
+
 export interface Deps {
   kv: KvLike;
   orders: OrderStore;
+  products: ProductStore;
   isAdmin(authHeader: string | null): Promise<'ok' | 'unauthenticated' | 'forbidden'>;
   uploadImage(file: File): Promise<string>;
 }

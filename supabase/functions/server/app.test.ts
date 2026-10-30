@@ -1,6 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import { createApp } from './app.ts';
-import { memoryKv, memoryOrders } from './dev.ts';
+import { createLock, memoryKv, memoryOrders, memoryProducts } from './dev.ts';
 import type { Deps, Order, Product } from './types.ts';
 
 const P = '/make-server-fbb8f0e1';
@@ -8,9 +8,11 @@ const ADMIN = { Authorization: 'Bearer admin', 'Content-Type': 'application/json
 
 function setup() {
   const kv = memoryKv();
+  const lock = createLock();
   const deps: Deps = {
     kv,
-    orders: memoryOrders(kv),
+    orders: memoryOrders(kv, lock),
+    products: memoryProducts(kv, lock),
     isAdmin: (h) =>
       Promise.resolve(
         h === 'Bearer admin' ? 'ok' : h === 'Bearer user' ? 'forbidden' : 'unauthenticated',
@@ -198,6 +200,7 @@ Deno.test('internal errors give 500', async () => {
   const deps: Deps = {
     kv: { ...memoryKv(), get: () => Promise.reject(new Error('boom')) },
     orders: memoryOrders(memoryKv()),
+    products: memoryProducts(memoryKv()),
     isAdmin: () => Promise.resolve('ok'),
     uploadImage: () => Promise.resolve(''),
   };
@@ -397,4 +400,84 @@ Deno.test('orders: admin lists newest first, cancel restores stock once', async 
   assertEquals(missing.status, 404);
   assertEquals(await missing.json(), { error: 'Order not found' });
   assertEquals((await cancel('not-a-uuid')).status, 404);
+});
+
+// ---------------------------------------------------------------------------
+// Stock-safe product updates
+// ---------------------------------------------------------------------------
+const putProduct = (app: ReturnType<typeof setup>, id: string, body: unknown) =>
+  app.request(`${P}/products/${id}`, { method: 'PUT', headers: ADMIN, body: JSON.stringify(body) });
+
+const orderOne = (app: ReturnType<typeof setup>, productId: string, quantity: number) =>
+  placeOrder(app, { id: crypto.randomUUID(), items: [{ productId, quantity }], customer });
+
+Deno.test('update: price edit after an order keeps the decremented stock', async () => {
+  const app = setup();
+  await app.request(`${P}/products`); // seed
+  assertEquals((await orderOne(app, '1', 2)).status, 201);
+  assertEquals(await stockOf(app, '1'), 48);
+  const r = await putProduct(app, '1', { price: 30 });
+  assertEquals(r.status, 200);
+  const p = (await r.json()) as Product;
+  assertEquals(p.price, 30);
+  assertEquals(p.stock, 48);
+});
+
+Deno.test('update: expectedStock mismatch gives 409 and writes nothing', async () => {
+  const app = setup();
+  await app.request(`${P}/products`);
+  await orderOne(app, '1', 2);
+  const before = (await (await app.request(`${P}/products/1`)).json()) as Product;
+  const r = await putProduct(app, '1', { stock: 10, expectedStock: 50 });
+  assertEquals(r.status, 409);
+  assertEquals(await r.json(), { error: 'Stock changed', stock: 48 });
+  assertEquals((await (await app.request(`${P}/products/1`)).json()) as Product, before);
+});
+
+Deno.test('update: expectedStock match sets stock', async () => {
+  const app = setup();
+  await app.request(`${P}/products`);
+  await orderOne(app, '1', 2);
+  const r = await putProduct(app, '1', { stock: 10, expectedStock: 48 });
+  assertEquals(r.status, 200);
+  assertEquals(((await r.json()) as Product).stock, 10);
+  assertEquals(await stockOf(app, '1'), 10);
+});
+
+Deno.test('update: explicit stock without expectedStock is still allowed', async () => {
+  const app = setup();
+  await app.request(`${P}/products`);
+  await orderOne(app, '1', 2);
+  const r = await putProduct(app, '1', { stock: 10 });
+  assertEquals(r.status, 200);
+  assertEquals(await stockOf(app, '1'), 10);
+});
+
+Deno.test('update: invalid expectedStock gives 400', async () => {
+  const app = setup();
+  await app.request(`${P}/products`);
+  for (const bad of [-1, 'x', 1.5, null]) {
+    const r = await putProduct(app, '1', { stock: 10, expectedStock: bad });
+    assertEquals(r.status, 400);
+    assertEquals(await r.json(), { error: 'expectedStock must be a whole number of 0 or more' });
+  }
+  assertEquals(await stockOf(app, '1'), 50);
+});
+
+Deno.test('update: concurrent order and edit lose neither change', async () => {
+  const app = setup();
+  await app.request(`${P}/products`);
+  const [o, u] = await Promise.all([orderOne(app, '1', 1), putProduct(app, '1', { name: 'Renamed' })]);
+  assertEquals(o.status, 201);
+  assertEquals(u.status, 200);
+  const p = (await (await app.request(`${P}/products/1`)).json()) as Product;
+  assertEquals(p.stock, 49);
+  assertEquals(p.name, 'Renamed');
+});
+
+Deno.test('update: unknown id gives 404', async () => {
+  const app = setup();
+  const r = await putProduct(app, 'missing', { price: 1, expectedStock: 3, stock: 2 });
+  assertEquals(r.status, 404);
+  assertEquals(await r.json(), { error: 'Product not found' });
 });

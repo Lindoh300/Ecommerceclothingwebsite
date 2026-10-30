@@ -18,10 +18,15 @@ export function createProduct(input: ProductInput): Promise<Product> {
   return apiFetch<Product>('/products', { method: 'POST', body: input, admin: true })
 }
 
-export function updateProduct(id: string, patch: Partial<ProductInput>): Promise<Product> {
+export function updateProduct(
+  id: string,
+  patch: Partial<ProductInput>,
+  expectedStock?: number,
+): Promise<Product> {
+  const body = expectedStock === undefined ? patch : { ...patch, expectedStock }
   return apiFetch<Product>(`/products/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    body: patch,
+    body,
     admin: true,
   })
 }

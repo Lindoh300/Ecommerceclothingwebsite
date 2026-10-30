@@ -1,6 +1,6 @@
 // Local dev server with no Supabase. Run with: deno run --allow-net dev.ts
 // Admin token: "Bearer dev-admin". Data lives in memory and resets on restart.
-import { createApp } from './app.ts';
+import { createApp, deriveImage } from './app.ts';
 import type {
   Customer,
   Deps,
@@ -11,6 +11,7 @@ import type {
   OrderStore,
   PlaceOrderResult,
   Product,
+  ProductStore,
   StockShortfall,
 } from './types.ts';
 
@@ -31,16 +32,42 @@ export function memoryKv(): KvLike {
   };
 }
 
-// In-memory orders that mirror the Postgres place_order/cancel_order functions.
-// A promise-chain mutex serialises place and cancel, standing in for row locks.
-export function memoryOrders(kv: KvLike): OrderStore {
-  const orders = new Map<string, Order>();
+export type Lock = <T>(fn: () => Promise<T>) => Promise<T>;
+
+// A promise-chain mutex standing in for Postgres row locks. Share one between
+// memoryOrders and memoryProducts so their operations serialise together.
+export function createLock(): Lock {
   let tail: Promise<unknown> = Promise.resolve();
-  const locked = <T>(fn: () => Promise<T>): Promise<T> => {
+  return <T>(fn: () => Promise<T>): Promise<T> => {
     const run = tail.then(fn);
     tail = run.catch(() => {});
     return run;
   };
+}
+
+// In-memory product updates that mirror the Postgres update_product function.
+export function memoryProducts(kv: KvLike, lock: Lock = createLock()): ProductStore {
+  return {
+    update: (id, patch, expectedStock) =>
+      lock(async () => {
+        const existing = (await kv.get(`product:${id}`)) as Product | undefined | null;
+        if (!existing) return { ok: false, reason: 'not_found' } as const;
+        if ('stock' in patch && patch.stock !== undefined && expectedStock !== undefined && existing.stock !== expectedStock) {
+          return { ok: false, reason: 'stock_changed', stock: existing.stock } as const;
+        }
+        const merged: Product = { ...existing, ...patch, id: existing.id, createdAt: existing.createdAt };
+        merged.image = deriveImage(merged.images);
+        await kv.set(`product:${id}`, merged);
+        return { ok: true, product: structuredClone(merged) } as const;
+      }),
+  };
+}
+
+// In-memory orders that mirror the Postgres place_order/cancel_order functions.
+// The shared lock serialises place and cancel, standing in for row locks.
+export function memoryOrders(kv: KvLike, lock: Lock = createLock()): OrderStore {
+  const orders = new Map<string, Order>();
+  const locked = lock;
   const productKey = (id: string) => `product:${id}`;
 
   async function place(rawId: string, items: OrderItemInput[], customer: Customer): Promise<PlaceOrderResult> {
@@ -129,9 +156,11 @@ export function memoryOrders(kv: KvLike): OrderStore {
 
 if (import.meta.main) {
   const kv = memoryKv();
+  const lock = createLock();
   const deps: Deps = {
     kv,
-    orders: memoryOrders(kv),
+    orders: memoryOrders(kv, lock),
+    products: memoryProducts(kv, lock),
     isAdmin: (h) => Promise.resolve(h === 'Bearer dev-admin' ? 'ok' : 'unauthenticated'),
     uploadImage: () => Promise.resolve(`https://picsum.photos/seed/${crypto.randomUUID()}/800/800`),
   };

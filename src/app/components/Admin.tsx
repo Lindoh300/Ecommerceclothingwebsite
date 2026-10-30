@@ -218,6 +218,8 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
   const [busy, setBusy] = useState(false);
   // Bumped whenever the form is reset or switched, so a late upload result is not applied to a different form.
   const formGeneration = useRef(0);
+  // Stock the product had when its edit form was opened. Used to send stock only when the admin changes it.
+  const loadedStock = useRef<number | null>(null);
 
   const isUploading = uploading.some(Boolean);
 
@@ -290,7 +292,15 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
     setBusy(true);
     try {
       if (editing) {
-        await updateProduct(editing, input);
+        const stockChanged = loadedStock.current === null || stock !== loadedStock.current;
+        if (stockChanged) {
+          // The admin changed stock: send it, guarded by the value the form was loaded with.
+          await updateProduct(editing, input, loadedStock.current ?? undefined);
+        } else {
+          // Stock untouched: leave it out so orders placed meanwhile are not overwritten.
+          const { stock: _unchanged, ...rest } = input;
+          await updateProduct(editing, rest);
+        }
       } else {
         await createProduct(input);
       }
@@ -298,7 +308,24 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
       toast.success(editing ? "Product updated successfully" : "Product added successfully");
       handleCancel();
     } catch (err) {
-      handleApiError(err);
+      const currentStock =
+        err instanceof ApiError && err.status === 409
+          ? (err.body as { stock?: unknown } | undefined)?.stock
+          : undefined;
+      if (editing && typeof currentStock === "number") {
+        toast.error("Stock changed", {
+          description: `An order came in while you were editing. Stock is now ${currentStock}. Check the number and save again.`,
+        });
+        loadedStock.current = currentStock;
+        setFormData((prev) => ({ ...prev, stock: currentStock }));
+        try {
+          await loadProducts(true);
+        } catch (refreshErr) {
+          handleApiError(refreshErr);
+        }
+      } else {
+        handleApiError(err);
+      }
     } finally {
       setBusy(false);
     }
@@ -310,6 +337,7 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
     const images = (product.images?.length ? [...product.images] : [product.image]).slice(0, 3);
     while (images.length < 3) images.push("");
     setEditing(product.id);
+    loadedStock.current = product.stock;
     setFormData({
       name: product.name,
       category: product.category,
@@ -358,6 +386,7 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
 
   const handleCancel = () => {
     formGeneration.current += 1;
+    loadedStock.current = null;
     setEditing(null);
     setAdding(false);
     setUploading([false, false, false]);

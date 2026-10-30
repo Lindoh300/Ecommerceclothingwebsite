@@ -9,7 +9,7 @@ const PREFIX = '/make-server-fbb8f0e1';
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-const deriveImage = (images: string[] | undefined): string => images?.find((u) => u !== '') ?? '';
+export const deriveImage = (images: string[] | undefined): string => images?.find((u) => u !== '') ?? '';
 
 export function createApp(deps: Deps): Hono {
   const app = new Hono();
@@ -90,13 +90,20 @@ export function createApp(deps: Deps): Hono {
     if (!parsed.ok) return c.json({ error: 'Malformed JSON' }, 400);
     const v = validateProductInput(parsed.body, true);
     if (!v.ok) return c.json({ error: v.error }, 400);
-    const id = c.req.param('id');
-    const existing = (await kv.get(`product:${id}`)) as Product | null;
-    if (!existing) return c.json({ error: 'Product not found' }, 404);
-    const merged: Product = { ...existing, ...v.value, id: existing.id, createdAt: existing.createdAt };
-    merged.image = deriveImage(merged.images);
-    await kv.set(`product:${id}`, merged);
-    return c.json(merged);
+    const raw = (parsed.body as Record<string, unknown>).expectedStock;
+    let expectedStock: number | undefined;
+    if (raw !== undefined) {
+      if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
+        return c.json({ error: 'expectedStock must be a whole number of 0 or more' }, 400);
+      }
+      expectedStock = raw;
+    }
+    const r = await deps.products.update(c.req.param('id'), v.value, expectedStock);
+    if (!r.ok) {
+      if (r.reason === 'not_found') return c.json({ error: 'Product not found' }, 404);
+      return c.json({ error: 'Stock changed', stock: r.stock }, 409);
+    }
+    return c.json(r.product);
   });
 
   app.delete(`${PREFIX}/products/:id`, async (c) => {

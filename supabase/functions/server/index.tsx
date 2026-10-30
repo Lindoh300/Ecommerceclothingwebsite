@@ -1,7 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2.49.8';
 import * as kv from './kv_store.tsx';
 import { createApp } from './app.ts';
-import type { Deps, Order, OrderStore, PlaceOrderResult } from './types.ts';
+import type { Deps, Order, OrderStore, PlaceOrderResult, ProductStore, UpdateProductResult } from './types.ts';
 
 function requireEnv(name: string): string {
   const v = Deno.env.get(name);
@@ -52,9 +52,25 @@ const orders: OrderStore = {
   },
 };
 
+// Admin product edits go through update_product (see
+// supabase/migrations/20261029000000_update_product.sql), which merges under the
+// same row lock the order functions take, so stock changes are never overwritten.
+const products: ProductStore = {
+  async update(id, patch, expectedStock) {
+    const { data, error } = await client().rpc('update_product', {
+      p_id: id,
+      p_patch: patch,
+      p_expected_stock: expectedStock ?? null,
+    });
+    if (error) throw new Error(error.message);
+    return data as UpdateProductResult;
+  },
+};
+
 const deps: Deps = {
   kv,
   orders,
+  products,
   async isAdmin(authHeader) {
     const m = authHeader?.match(/^Bearer\s+(.+)$/i);
     if (!m) return 'unauthenticated';
