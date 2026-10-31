@@ -52,8 +52,8 @@ export function Footer() {
                 <li><Link to="/about" className="text-sm hover:text-b60 transition-colors">Our Story</Link></li>
                 <li><Link to="/events" className="text-sm hover:text-b60 transition-colors">Events</Link></li>
                 <li><Link to="/community" className="text-sm hover:text-b60 transition-colors">Community</Link></li>
-                <li><Link to="/terms" className="text-sm hover:text-b60 transition-colors">Terms</Link></li>
                 <li><Link to="/privacy" className="text-sm hover:text-b60 transition-colors">Privacy</Link></li>
+                <li><Link to="/unsubscribe" className="text-sm hover:text-b60 transition-colors">Unsubscribe</Link></li>
               </ul>
             </div>
 

@@ -14,7 +14,7 @@ const sections: InfoSection[] = [
             "Exchanges are subject to stock availability",
           ]}
         />
-        <p>These conditions do not affect your rights below.</p>
+        <p>These conditions do not limit any rights you have under South African law.</p>
       </>
     ),
   },
@@ -27,20 +27,6 @@ const sections: InfoSection[] = [
       </>
     ),
   },
-  {
-    title: "Your rights in South Africa",
-    body: (
-      <>
-        <p>This is general information, not legal advice.</p>
-        <InfoList
-          items={[
-            "Online purchases: under the Electronic Communications and Transactions Act you have a cooling-off period of 7 days after delivery. The Act sets out some exceptions.",
-            "Defective goods: under the Consumer Protection Act you have a right to return defective goods within 6 months.",
-          ]}
-        />
-      </>
-    ),
-  },
 ];
 
 export function Returns() {
@@ -48,7 +34,7 @@ export function Returns() {
     <InfoPage
       eyebrow="Help"
       title="Returns"
-      intro="How to exchange or return an item, and the rights you have as a customer."
+      intro="How to exchange or return an item."
       sections={sections}
     />
   );

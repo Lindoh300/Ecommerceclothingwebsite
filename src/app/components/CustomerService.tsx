@@ -75,7 +75,7 @@ export function CustomerService() {
       content: (
         <div className="space-y-4 text-b60">
           <p>Not satisfied with your purchase? You can return or exchange items within {shop.returnDays} days of delivery.</p>
-          <p>Conditions and your rights are on our <Link to="/returns" className={pageLink}>returns page</Link>.</p>
+          <p>Conditions are on our <Link to="/returns" className={pageLink}>returns page</Link>.</p>
         </div>
       )
     },

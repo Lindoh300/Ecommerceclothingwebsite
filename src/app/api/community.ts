@@ -22,3 +22,12 @@ export function subscribe(input: {
 }): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>('/subscribers', { method: 'POST', body: input })
 }
+
+/**
+ * Public: removes a phone number or email address from the mailing list. The answer is `{ ok: true }` for any valid
+ * contact, whether or not it was on the list, so the page never reveals who signed up. 400 for a bad request, 429
+ * after 5 requests an hour from one connection.
+ */
+export function unsubscribe(input: { phone?: string; email?: string }): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>('/subscribers/unsubscribe', { method: 'POST', body: input })
+}

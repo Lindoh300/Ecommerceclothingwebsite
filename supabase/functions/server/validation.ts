@@ -618,24 +618,10 @@ export function normalisePhone(phone: string): string | null {
   return n === '' ? null : n;
 }
 
-/**
- * The body of POST /subscribers. `consent` must be exactly true. The consent wording is never read from
- * the body: the route stores its own constant. At least one of phone and email is needed; the phone needs 9 to 15
- * digits, the email a plausible address.
- */
-export function validateSubscribeInput(body: unknown): Result<SubscribeInput> {
-  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
-  if (body.consent !== true) return { ok: false, error: 'consent must be true' };
-  if (typeof body.source !== 'string' || !SUBSCRIBER_SOURCES.includes(body.source as SubscriberSource)) {
-    return { ok: false, error: 'source must be community, footer or event' };
-  }
-  const out: SubscribeInput = { source: body.source as SubscriberSource };
-  if (body.name !== undefined && body.name !== null && body.name !== '') {
-    if (typeof body.name !== 'string' || body.name.length > 100) {
-      return { ok: false, error: 'name must be text up to 100 characters' };
-    }
-    if (body.name.trim() !== '') out.name = body.name.trim();
-  }
+/** The phone and email rules shared by the sign-up and the unsubscribe: each is optional, blank counts as absent,
+ *  the phone needs 9 to 15 digits, the email a plausible address. Does not require either to be present. */
+function readContact(body: Record<string, unknown>): Result<{ phone?: string; email?: string }> {
+  const out: { phone?: string; email?: string } = {};
   if (body.phone !== undefined && body.phone !== null && body.phone !== '') {
     if (typeof body.phone !== 'string' || body.phone.length > 40) return { ok: false, error: 'phone must be text' };
     const phone = body.phone.trim();
@@ -655,8 +641,45 @@ export function validateSubscribeInput(body: unknown): Result<SubscribeInput> {
       out.email = email;
     }
   }
+  return { ok: true, value: out };
+}
+
+/**
+ * The body of POST /subscribers. `consent` must be exactly true. The consent wording is never read from
+ * the body: the route stores its own constant. At least one of phone and email is needed; the phone needs 9 to 15
+ * digits, the email a plausible address.
+ */
+export function validateSubscribeInput(body: unknown): Result<SubscribeInput> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  if (body.consent !== true) return { ok: false, error: 'consent must be true' };
+  if (typeof body.source !== 'string' || !SUBSCRIBER_SOURCES.includes(body.source as SubscriberSource)) {
+    return { ok: false, error: 'source must be community, footer or event' };
+  }
+  const out: SubscribeInput = { source: body.source as SubscriberSource };
+  if (body.name !== undefined && body.name !== null && body.name !== '') {
+    if (typeof body.name !== 'string' || body.name.length > 100) {
+      return { ok: false, error: 'name must be text up to 100 characters' };
+    }
+    if (body.name.trim() !== '') out.name = body.name.trim();
+  }
+  const contact = readContact(body);
+  if (!contact.ok) return contact;
+  if (contact.value.phone) out.phone = contact.value.phone;
+  if (contact.value.email) out.email = contact.value.email;
   if (!out.phone && !out.email) return { ok: false, error: 'Give a phone number or an email address' };
   return { ok: true, value: out };
+}
+
+/**
+ * The body of POST /subscribers/unsubscribe: a phone, an email or both, checked like a sign-up's. At least one is
+ * needed. Nothing else in the body is read.
+ */
+export function validateUnsubscribeInput(body: unknown): Result<{ phone?: string; email?: string }> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  const contact = readContact(body);
+  if (!contact.ok) return contact;
+  if (!contact.value.phone && !contact.value.email) return { ok: false, error: 'Give a phone number or an email address' };
+  return contact;
 }
 
 /** The body of PUT /admin/gallery/:id. Every key is optional (a new item needs image). */

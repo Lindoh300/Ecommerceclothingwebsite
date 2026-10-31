@@ -1,4 +1,5 @@
-// Tests for supabase/migrations/20261031130000_community.sql (gallery and mailing list), run against an in-process
+// Tests for supabase/migrations/20261031130000_community.sql (gallery and mailing list) and
+// 20261031140000_unsubscribe.sql (self-service unsubscribe), run against an in-process
 // Postgres (PGlite) with every migration before it applied. Run with `deno task test:sql` from
 // supabase/functions/server.
 //
@@ -16,6 +17,7 @@ type Db = Awaited<ReturnType<PGlite['clone']>>;
 const MIGRATIONS = new URL('../migrations/', import.meta.url);
 const readMigration = (name: string) => Deno.readTextFile(new URL(name, MIGRATIONS));
 const COMMUNITY_MIGRATION = '20261031130000_community.sql';
+const UNSUBSCRIBE_MIGRATION = '20261031140000_unsubscribe.sql';
 // Every migration before the community one, in order. The pg_cron migration is never loaded: PGlite has no pg_cron.
 const BEFORE_COMMUNITY = [
   '20261021000000_init.sql',
@@ -49,6 +51,7 @@ const SUPABASE_ROLES_SQL = `
 let beforeDb: Promise<Db> | undefined;
 let afterDb: Promise<Db> | undefined;
 let functionsBefore: Promise<Json[]> | undefined;
+let functionsBeforeUnsub: Promise<Json[]> | undefined;
 
 function before(): Promise<Db> {
   beforeDb ??= (async () => {
@@ -68,13 +71,15 @@ const functionDefs = (db: Db): Promise<Json[]> =>
      where n.nspname = 'public' order by sig`,
   );
 
-/** `before` plus the community migration, applied once. */
+/** `before` plus the community migration and the unsubscribe one, applied once. */
 function after(): Promise<Db> {
   afterDb ??= (async () => {
     const base = await before();
     functionsBefore = functionDefs(base);
     const db = await base.clone();
     await db.exec(await readMigration(COMMUNITY_MIGRATION));
+    functionsBeforeUnsub = functionDefs(db);
+    await db.exec(await readMigration(UNSUBSCRIBE_MIGRATION));
     return db;
   })();
   return afterDb;
@@ -120,6 +125,10 @@ const subscribe = (
     o.source ?? 'community',
     o.ip ?? null,
   );
+
+/** public.unsubscribe_contact(phone, email, ip) */
+const unsubscribe = (db: Db, o: { phone?: string | null; email?: string | null; ip?: string | null }) =>
+  call(db, 'public.unsubscribe_contact($1, $2, $3)', o.phone ?? null, o.email ?? null, o.ip ?? null);
 
 const subs = (db: Db) => rows(db, 'select * from public.subscribers order by created_at, id');
 const count = async (db: Db, table: string) => (await rows(db, `select count(*)::int as n from public.${table}`))[0].n as number;
@@ -351,6 +360,146 @@ Deno.test('list_subscribers_admin and admin_unsubscribe_subscriber: newest first
 });
 
 // ---------------------------------------------------------------------------
+// Self-service unsubscribe (20261031140000_unsubscribe.sql).
+// ---------------------------------------------------------------------------
+Deno.test('unsubscribe_contact: opts out by phone, keeps the row and the consent record, and a second call keeps the first time', async () => {
+  await withDb(async (db) => {
+    await subscribe(db, { name: 'Thandi', phone: '082 123 4567', email: 't@example.com', source: 'event' });
+    await subscribe(db, { phone: '0839999999' });
+    const [before] = await subs(db);
+    assertEquals(await unsubscribe(db, { phone: '082 123 4567' }), { ok: true });
+    const [one, other] = await subs(db);
+    assert(one.unsubscribed_at);
+    assertEquals(other.unsubscribed_at, null);
+    // Nothing else about the row changed: it is still the record of the consent.
+    for (const k of ['id', 'name', 'phone', 'email', 'consent_text', 'consent_at', 'source', 'created_at']) {
+      assertEquals(one[k], before[k], k);
+    }
+    assertEquals(await count(db, 'subscribers'), 2);
+    // A second call, even from another contact of the same row, keeps the first time.
+    await db.exec(`update public.subscribers set unsubscribed_at = now() - interval '3 days' where id = '${one.id}'`);
+    const stamped = (await subs(db))[0].unsubscribed_at;
+    assertEquals(await unsubscribe(db, { phone: '+27821234567' }), { ok: true });
+    assertEquals(await unsubscribe(db, { email: 'T@EXAMPLE.COM' }), { ok: true });
+    assertEquals((await subs(db))[0].unsubscribed_at, stamped);
+    assertEquals(await count(db, 'subscribers'), 2);
+  });
+});
+
+Deno.test('unsubscribe_contact: phone spellings and email case all match', async () => {
+  await withDb(async (db) => {
+    await subscribe(db, { phone: '(082) 123-4567' });
+    await subscribe(db, { email: 'Mixed.Case@Example.com' });
+    for (const phone of ['0821234567', '+27 82 123 4567', '0027821234567', '27821234567', ' 082.123.4567 ']) {
+      await db.exec(`update public.subscribers set unsubscribed_at = null`);
+      assertEquals(await unsubscribe(db, { phone }), { ok: true });
+      assert((await subs(db))[0].unsubscribed_at, phone);
+      assertEquals((await subs(db))[1].unsubscribed_at, null, phone);
+    }
+    for (const email of ['mixed.case@example.com', 'MIXED.CASE@EXAMPLE.COM', '  Mixed.Case@Example.com  ']) {
+      await db.exec(`update public.subscribers set unsubscribed_at = null`);
+      assertEquals(await unsubscribe(db, { email }), { ok: true });
+      assert((await subs(db))[1].unsubscribed_at, email);
+      assertEquals((await subs(db))[0].unsubscribed_at, null, email);
+    }
+  });
+});
+
+Deno.test('unsubscribe_contact: a phone and an email for two different rows opt out both; either alone is enough', async () => {
+  await withDb(async (db) => {
+    await subscribe(db, { phone: '0821234567' });
+    await subscribe(db, { email: 'other@example.com' });
+    await subscribe(db, { phone: '0830000000', email: 'third@example.com' });
+    assertEquals(await unsubscribe(db, { phone: '082 123 4567', email: 'OTHER@example.com' }), { ok: true });
+    assertEquals((await subs(db)).map((s: Json) => s.unsubscribed_at !== null), [true, true, false]);
+    assertEquals(await unsubscribe(db, { email: 'third@example.com' }), { ok: true });
+    assertEquals((await subs(db)).map((s: Json) => s.unsubscribed_at !== null), [true, true, true]);
+  });
+});
+
+Deno.test('unsubscribe_contact: an unknown contact, or none at all, gives the same {ok:true} and changes nothing', async () => {
+  await withDb(async (db) => {
+    await subscribe(db, { phone: '0821234567', email: 'a@example.com' });
+    const known = await unsubscribe(db, { phone: '0821234567' });
+    await db.exec(`update public.subscribers set unsubscribed_at = null`);
+    for (const o of [
+      { phone: '0839999999' },
+      { email: 'nobody@example.com' },
+      { phone: '0839999999', email: 'nobody@example.com' },
+      { phone: '  ', email: '' },
+      { phone: '---' },
+      {},
+    ]) {
+      assertEquals(await unsubscribe(db, o), known, j(o));
+    }
+    assertEquals(known, { ok: true });
+    const [s] = await subs(db);
+    assertEquals(s.unsubscribed_at, null);
+    assertEquals(await count(db, 'subscribers'), 1);
+  });
+});
+
+Deno.test('unsubscribe_contact: 5 per address are shared with sign-ups; the 6th is rate_limited and writes nothing', async () => {
+  await withDb(async (db) => {
+    await subscribe(db, { phone: '0821234567' });
+    // Two sign-ups and three unsubscribes use the five.
+    assertEquals(await subscribe(db, { phone: '0820001001', ip: IP }), { ok: true });
+    assertEquals(await subscribe(db, { phone: '0820001002', ip: IP }), { ok: true });
+    for (let i = 0; i < 3; i++) assertEquals(await unsubscribe(db, { email: `n${i}@example.com`, ip: IP }), { ok: true });
+    assertEquals(await count(db, 'subscribe_ip_log'), 5);
+    const logBefore = await rows(db, 'select * from public.subscribe_ip_log order by created_at, ip_hash');
+    const subsBefore = await subs(db);
+    // Over the limit: nothing changes, not the list and not the log.
+    assertEquals(await unsubscribe(db, { phone: '082 123 4567', ip: IP }), { ok: false, reason: 'rate_limited' });
+    assertEquals(await subs(db), subsBefore);
+    assertEquals((await subs(db))[0].unsubscribed_at, null);
+    assertEquals(await rows(db, 'select * from public.subscribe_ip_log order by created_at, ip_hash'), logBefore);
+    // And a sign-up is refused for the same reason.
+    assertEquals((await subscribe(db, { phone: '0820001003', ip: IP })).reason, 'rate_limited');
+    assertEquals(await count(db, 'subscribers'), 3);
+    // Another address, and no address, are not limited and leave no log row.
+    assertEquals(await unsubscribe(db, { phone: '082 123 4567', ip: '198.51.100.7' }), { ok: true });
+    assert((await subs(db))[0].unsubscribed_at);
+    assertEquals(await count(db, 'subscribe_ip_log'), 6);
+    for (let i = 0; i < 7; i++) assertEquals(await unsubscribe(db, { email: `m${i}@example.com` }), { ok: true });
+    assertEquals(await unsubscribe(db, { email: 'm@example.com', ip: '' }), { ok: true });
+    assertEquals(await count(db, 'subscribe_ip_log'), 6);
+  });
+});
+
+Deno.test('unsubscribe_contact: the hour rolls, old rows are deleted, and the log holds only the salted hash', async () => {
+  await withDb(async (db) => {
+    await subscribe(db, { phone: '0821234567' });
+    for (let i = 0; i < 5; i++) await unsubscribe(db, { email: `n${i}@example.com`, ip: IP });
+    assertEquals((await unsubscribe(db, { phone: '0821234567', ip: IP })).reason, 'rate_limited');
+    const salt = (await rows(db, 'select salt from public.order_rate_salt'))[0].salt as string;
+    const expected = (await rows(db, `select encode(sha256(convert_to($1, 'UTF8')), 'hex') as h`, [salt + IP]))[0].h;
+    const log = await rows(db, 'select * from public.subscribe_ip_log');
+    assertEquals(log.map((l: Json) => l.ip_hash), Array(5).fill(expected));
+    assert(!j(log).includes(IP));
+    await db.exec(`update public.subscribe_ip_log set created_at = now() - interval '61 minutes'`);
+    assertEquals(await unsubscribe(db, { phone: '0821234567', ip: IP }), { ok: true });
+    assert((await subs(db))[0].unsubscribed_at);
+    assertEquals(await count(db, 'subscribe_ip_log'), 1);
+  });
+});
+
+Deno.test('unsubscribe_contact: a later sign-up clears the opt-out and renews the consent', async () => {
+  await withDb(async (db) => {
+    await subscribe(db, { name: 'Thandi', phone: '0821234567', text: 'old wording' });
+    await db.exec(`update public.subscribers set consent_at = now() - interval '30 days'`);
+    await unsubscribe(db, { phone: '0821234567' });
+    assert((await subs(db))[0].unsubscribed_at);
+    assertEquals(await subscribe(db, { phone: '+27 82 123 4567' }), { ok: true });
+    const [s] = await subs(db);
+    assertEquals(s.unsubscribed_at, null);
+    assertEquals(s.consent_text, TEXT);
+    assert(Date.now() - new Date(s.consent_at).getTime() < 60_000);
+    assertEquals(await count(db, 'subscribers'), 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Gallery.
 // ---------------------------------------------------------------------------
 Deno.test('gallery: public lists active items by sort then newest with four fields; admin lists all', async () => {
@@ -431,6 +580,8 @@ const FUNCTIONS = [
   'public.subscribe(text,text,text,text,text,text)',
   'public.list_subscribers_admin()',
   'public.admin_unsubscribe_subscriber(uuid)',
+  // From 20261031140000_unsubscribe.sql.
+  'public.unsubscribe_contact(text,text,text)',
 ];
 
 Deno.test('RLS and grants: tables have RLS and no policies; anon and authenticated can touch nothing', async () => {
@@ -465,6 +616,11 @@ Deno.test('RLS and grants: tables have RLS and no policies; anon and authenticat
           Error,
           'permission denied',
         );
+        await assertRejects(
+          () => db.query(`select public.unsubscribe_contact('0821234567', null, null)`),
+          Error,
+          'permission denied',
+        );
       } finally {
         await db.exec('reset role');
       }
@@ -488,8 +644,10 @@ Deno.test('RLS and grants: every function is service_role only, and the list cov
         sig,
       );
     }
-    const created = [...(await readMigration(COMMUNITY_MIGRATION)).matchAll(/create or replace function public\.(\w+)\(/g)]
-      .map((m) => m[1]);
+    const created: string[] = [];
+    for (const f of [COMMUNITY_MIGRATION, UNSUBSCRIBE_MIGRATION]) {
+      for (const m of (await readMigration(f)).matchAll(/create or replace function public\.(\w+)\(/g)) created.push(m[1]);
+    }
     const covered = new Set(FUNCTIONS.map((s) => s.slice('public.'.length, s.indexOf('('))));
     for (const name of created) assert(covered.has(name), `${name} has no grant check`);
     assertEquals(created.length, covered.size);
@@ -512,9 +670,24 @@ Deno.test('migration: no existing function changed, no existing table touched', 
   }
 });
 
+Deno.test('migration: the unsubscribe migration adds one function and changes no existing function or grant', async () => {
+  const db = await after();
+  const base = await functionsBeforeUnsub!;
+  const now = await functionDefs(db);
+  const byName = new Map(now.map((f) => [f.sig as string, f]));
+  for (const f of base) {
+    const same = byName.get(f.sig);
+    assert(same, `${f.sig} is gone`);
+    assertEquals(same.def, f.def, `${f.sig} changed`);
+    assertEquals(same.acl, f.acl, `${f.sig} grants changed`);
+  }
+  assertEquals(now.length - base.length, 1);
+  assertEquals(now.filter((f) => !base.some((b) => b.sig === f.sig)).map((f) => f.sig), ['unsubscribe_contact(text,text,text)']);
+});
+
 Deno.test('migration: a second run changes nothing and keeps the data and the grants', async () => {
   await withDb(async (db) => {
-    const sql = await readMigration(COMMUNITY_MIGRATION);
+    const sql = await readMigration(COMMUNITY_MIGRATION) + await readMigration(UNSUBSCRIBE_MIGRATION);
     const dump = async () => ({
       tables: await rows(db, `select t.table_name, c.column_name, c.data_type from information_schema.tables t
         join information_schema.columns c using (table_schema, table_name)
@@ -528,6 +701,7 @@ Deno.test('migration: a second run changes nothing and keeps the data and the gr
       },
     });
     await subscribe(db, { phone: '0821234567', ip: IP });
+    await unsubscribe(db, { phone: '0821234567' });
     await putItem(db, newId(), { image: 'https://x/a.jpg' });
     const first = await dump();
     await db.exec(sql);

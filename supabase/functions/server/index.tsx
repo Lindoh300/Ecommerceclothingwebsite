@@ -67,6 +67,7 @@ const client = () => createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABA
 //   20261031110000_payment_links.sql     set_payment_window (48-hour hold for a payment link)
 //   20261031120000_events.sql            events, ticket types, tickets (rsvp_tickets, check_in_ticket and friends)
 //   20261031130000_community.sql         gallery items and the mailing list (subscribe and friends)
+//   20261031140000_unsubscribe.sql       unsubscribe_contact (self-service opt-out, shares the sign-up limit)
 // The kv table is not used. Orders and stock changes lock the variant rows, so
 // stock cannot be oversold. Nothing is seeded here: the migration copies the
 // existing products over.
@@ -223,6 +224,12 @@ const community: CommunityStore = {
       p_email: input.email ?? null,
       p_consent_text: consentText,
       p_source: input.source,
+      p_ip: ip ?? null,
+    }),
+  unsubscribeContact: (input, ip) =>
+    rpc<{ ok: true } | { ok: false; reason: 'rate_limited' }>('unsubscribe_contact', {
+      p_phone: input.phone ?? null,
+      p_email: input.email ?? null,
       p_ip: ip ?? null,
     }),
   listSubscribers: () => rpc<Subscriber[]>('list_subscribers_admin', {}),

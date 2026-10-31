@@ -608,6 +608,10 @@ export interface CommunityStore {
   /** Adds the person, or renews the consent of one already on the list (and clears an opt-out). `consentText` is
    *  the wording stored with the consent time. `ip` is the client address for the limit of 5 an hour; none, no limit. */
   subscribe(input: SubscribeInput, consentText: string, ip?: string): Promise<{ ok: true } | { ok: false; reason: 'rate_limited' }>;
+  /** Self-service opt-out by phone, email or both: every matching subscriber gets `unsubscribedAt` set (the first time
+   *  is kept) and nothing is deleted. Always `{ok:true}`, whether or not anyone matched. It shares the sign-up limit:
+   *  `ip` is the client address, and 5 sign-ups and unsubscribes together an hour is the most; none, no limit. */
+  unsubscribeContact(input: { phone?: string; email?: string }, ip?: string): Promise<{ ok: true } | { ok: false; reason: 'rate_limited' }>;
   /** Newest first, opted-out ones too. */
   listSubscribers(): Promise<Subscriber[]>;
   /** Opts out; a second call keeps the first time. null = no such subscriber. */

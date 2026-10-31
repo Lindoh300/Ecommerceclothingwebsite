@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'npm:hono';
 import { clientIp } from './app.ts';
 import type { Deps } from './types.ts';
-import { UUID_RE, validateGalleryInput, validateSubscribeInput } from './validation.ts';
+import { UUID_RE, validateGalleryInput, validateSubscribeInput, validateUnsubscribeInput } from './validation.ts';
 
 const PREFIX = '/make-server-fbb8f0e1';
 
@@ -22,7 +22,7 @@ type Guard = (c: Context) => Promise<Response | null>;
 /**
  * Registers the community routes on `app`. `guard` returns an error Response when the caller is not an admin,
  * else null; every /admin route calls it before it reads anything.
- *   Public: GET /gallery, POST /subscribers
+ *   Public: GET /gallery, POST /subscribers, POST /subscribers/unsubscribe
  *   Admin:  GET /admin/subscribers, POST /admin/subscribers/:id/unsubscribe,
  *           GET /admin/gallery, PUT and DELETE /admin/gallery/:id
  */
@@ -54,6 +54,26 @@ export function registerCommunityRoutes(app: Hono, deps: Deps, guard: Guard): vo
       c.header('Retry-After', '3600');
       return c.json({
         error: 'Too many sign-ups from this connection. Please try again in an hour or message us on WhatsApp.',
+        code: 'rate_limited',
+      }, 429);
+    }
+    return c.json({ ok: true });
+  });
+
+  // Self-service opt-out by phone, email or both. 200 {ok:true} for a valid request whether or not the contact is on the
+  // list, so the answer does not say who is. Shares the sign-up limit: 5 sign-ups and unsubscribes together per client
+  // address per hour; no address, no limit. Nothing is deleted: the row stays as the record of the consent.
+  app.post(`${PREFIX}/subscribers/unsubscribe`, async (c) => {
+    const parsed = await readJson(c);
+    if (!parsed.ok) return c.json({ error: 'Malformed JSON' }, 400);
+    const v = validateUnsubscribeInput(parsed.body);
+    if (!v.ok) return c.json({ error: v.error }, 400);
+    const ip = clientIp(c.req.raw.headers);
+    const r = await community.unsubscribeContact(v.value, ip ?? undefined);
+    if (!r.ok) {
+      c.header('Retry-After', '3600');
+      return c.json({
+        error: 'Too many requests from this connection. Please try again in an hour or message us on WhatsApp.',
         code: 'rate_limited',
       }, 429);
     }

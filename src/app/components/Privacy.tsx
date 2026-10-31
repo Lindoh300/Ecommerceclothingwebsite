@@ -1,16 +1,7 @@
-import { ContactDetails, InfoPage, InfoList, ToBeConfirmed, type InfoSection } from "./InfoPage";
+import { Link } from "react-router";
+import { ContactDetails, InfoPage, InfoList, type InfoSection } from "./InfoPage";
 
 const sections: InfoSection[] = [
-  {
-    title: "Who we are",
-    body: (
-      <p>
-        This page explains how 4Nguru The Brand Online handles personal information, in line with the Protection of
-        Personal Information Act (POPIA). Registered business name and registration number:{" "}
-        <ToBeConfirmed />.
-      </p>
-    ),
-  },
   {
     title: "What we collect",
     body: (
@@ -29,23 +20,21 @@ const sections: InfoSection[] = [
     title: "Why we use it",
     body: (
       <InfoList
-        items={["To fill and deliver your orders", "To contact you about your order"]}
+        items={[
+          "To fill and deliver your orders",
+          "To contact you about your order",
+          "To send you news, only if you joined our mailing list",
+        ]}
       />
     ),
   },
   {
     title: "Who sees it",
     body: (
-      <>
-        <p>Your information is shared with:</p>
-        <InfoList
-          items={[
-            "The courier that delivers your order",
-            "The payment provider that handles payment",
-            "The email provider we use to send emails",
-          ]}
-        />
-      </>
+      <p>
+        We share your details only as needed with the courier that delivers your order, and with the payment and email
+        providers we use.
+      </p>
     ),
   },
   {
@@ -53,37 +42,31 @@ const sections: InfoSection[] = [
     body: (
       <>
         <p>
-          To prevent abuse, an IP-based value is held briefly as a salted hash. How long it is kept is{" "}
-          <ToBeConfirmed />.
+          To prevent abuse, we keep a one-way hash of your connection address for about an hour. Our hosting providers
+          may also log it.
         </p>
         <p>Your cart is stored in your browser and is sent to us only when you check out.</p>
       </>
     ),
   },
   {
-    title: "Marketing",
+    title: "Mailing list",
     body: (
-      <>
-        <p>
-          We send marketing messages only with your consent. You can withdraw your consent at any time using the
-          contact details below.
-        </p>
-        <p>
-          If you join our mailing list we keep the name you gave (if any), your phone number or email address, the time
-          you agreed and the wording you agreed to. To opt out, contact us using the details below. We then stop
-          sending you news and keep a note that you opted out.
-        </p>
-      </>
+      <p>
+        If you join our mailing list we keep the name you gave (if any), your phone number or email address, the time you
+        agreed and the wording you agreed to. You can{" "}
+        <Link to="/unsubscribe" className="underline underline-offset-2 hover:text-b60">
+          unsubscribe
+        </Link>{" "}
+        at any time. We then stop sending you news and keep a note that you opted out.
+      </p>
     ),
   },
   {
-    title: "Your rights",
+    title: "Questions about your information",
     body: (
       <>
-        <p>
-          You can ask us for access to your personal information, ask us to correct it, or ask us to delete it.
-          Contact us:
-        </p>
+        <p>Contact us to see, correct or delete the information we hold about you.</p>
         <ContactDetails />
       </>
     ),
@@ -93,7 +76,7 @@ const sections: InfoSection[] = [
 export function Privacy() {
   return (
     <InfoPage
-      eyebrow="Legal"
+      eyebrow="Help"
       title="Privacy"
       intro="What we collect when you shop with us, why, and how to ask about it."
       sections={sections}

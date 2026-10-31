@@ -1099,7 +1099,7 @@ export function memoryEvents(lock: Lock = createLock(), now: () => number = Date
 
 // --- Community: mirrors 20261031130000_community.sql ------------------------------------------------------------
 
-/** Most sign-ups per client address in a rolling hour. */
+/** Most sign-ups and unsubscribes together per client address in a rolling hour. */
 const SIGNUPS_PER_IP = 5;
 
 type StoredSubscriber = Subscriber & { consentText: string };
@@ -1131,6 +1131,19 @@ export function memoryCommunity(
     return await Promise.all(
       items.map(async (g) => ({ ...g, eventId: g.eventId && (await eventExists(g.eventId)) ? g.eventId : null })),
     );
+  };
+
+  // The address limit, shared by sign-ups and unsubscribes (one log, like subscribe_ip_log). No address, no limit.
+  // false = over the limit, nothing recorded.
+  const takeSlot = (ip: string | undefined): boolean => {
+    if (!ip) return true;
+    const recent = (log.get(ip) ?? []).filter((t) => t > now() - HOUR_MS);
+    if (recent.length >= SIGNUPS_PER_IP) {
+      log.set(ip, recent);
+      return false;
+    }
+    log.set(ip, [...recent, now()]);
+    return true;
   };
 
   const view = (s: StoredSubscriber): Subscriber => {
@@ -1181,14 +1194,7 @@ export function memoryCommunity(
     deleteGalleryItem: (id: string) => lock(() => Promise.resolve(gallery.delete(id))),
     subscribe: (input, consentText, ip) =>
       lock((): Promise<Awaited<ReturnType<CommunityStore['subscribe']>>> => {
-        if (ip) {
-          const recent = (log.get(ip) ?? []).filter((t) => t > now() - HOUR_MS);
-          if (recent.length >= SIGNUPS_PER_IP) {
-            log.set(ip, recent);
-            return Promise.resolve({ ok: false as const, reason: 'rate_limited' as const });
-          }
-          log.set(ip, [...recent, now()]);
-        }
+        if (!takeSlot(ip)) return Promise.resolve({ ok: false as const, reason: 'rate_limited' as const });
         const pn = input.phone ? normalisePhone(input.phone) : null;
         const email = input.email?.toLowerCase();
         const all = [...subscribers.values()];
@@ -1216,6 +1222,17 @@ export function memoryCommunity(
           ex.consentText = consentText;
           ex.consentAt = iso();
           ex.unsubscribedAt = null;
+        }
+        return Promise.resolve({ ok: true as const });
+      }),
+    unsubscribeContact: (input, ip) =>
+      lock((): Promise<Awaited<ReturnType<CommunityStore['unsubscribeContact']>>> => {
+        if (!takeSlot(ip)) return Promise.resolve({ ok: false as const, reason: 'rate_limited' as const });
+        const pn = input.phone ? normalisePhone(input.phone) : null;
+        const email = input.email?.toLowerCase();
+        for (const s of subscribers.values()) {
+          const hit = (pn && s.phone && normalisePhone(s.phone) === pn) || (email && s.email && s.email.toLowerCase() === email);
+          if (hit) s.unsubscribedAt ??= iso();
         }
         return Promise.resolve({ ok: true as const });
       }),

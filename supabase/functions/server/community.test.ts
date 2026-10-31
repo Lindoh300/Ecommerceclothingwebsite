@@ -165,6 +165,155 @@ Deno.test('subscribe: a person who opted out and signs up again is reactivated, 
   assertEquals((await send(app, 'POST', '/admin/subscribers/nope/unsubscribe')).status, 404);
 });
 
+const unsub = (app: App, body: unknown, headers: Record<string, string> = JSON_H) =>
+  send(app, 'POST', '/subscribers/unsubscribe', body, headers);
+
+Deno.test('unsubscribe: malformed JSON, a non-object, no contact, a bad phone or a bad email is 400 and changes nothing', async () => {
+  const { app } = await setup();
+  await signUp(app, GOOD);
+  for (const body of [
+    {},
+    { phone: '', email: '  ' },
+    { phone: null, email: null },
+    { name: 'Thandi' },
+    { phone: '12' },
+    { phone: 'call me maybe' },
+    { phone: 5 },
+    { email: 'not-an-email' },
+    { email: 42 },
+    { phone: '082 123 4567', email: 'not-an-email' },
+    [],
+    'x',
+    null,
+  ]) {
+    const r = await unsub(app, body);
+    assertEquals(r.status, 400, JSON.stringify(body));
+    assert(typeof (await r.json()).error === 'string');
+  }
+  const bad = await app.request(`${P}/subscribers/unsubscribe`, { method: 'POST', headers: JSON_H, body: '{bad' });
+  assertEquals(bad.status, 400);
+  assertEquals((await bad.json()).error, 'Malformed JSON');
+  assertEquals((await send(app, 'POST', '/subscribers/unsubscribe', undefined)).status, 400);
+  assertEquals((await listSubs(app))[0].unsubscribedAt, null);
+});
+
+Deno.test('unsubscribe: a known and an unknown contact get the identical status and body', async () => {
+  const { app } = await setup();
+  await signUp(app, GOOD);
+  await signUp(app, { email: 'known@example.com', consent: true, source: 'footer' });
+  const answers: [number, string][] = [];
+  for (const body of [
+    { phone: '082 123 4567' },
+    { phone: '083 999 9999' },
+    { email: 'known@example.com' },
+    { email: 'nobody@example.com' },
+    { phone: '083 999 9999', email: 'nobody@example.com' },
+  ]) {
+    const r = await unsub(app, body);
+    answers.push([r.status, await r.text()]);
+  }
+  for (const a of answers) assertEquals(a, [200, JSON.stringify({ ok: true })]);
+  // Asking about someone who is not on the list adds nobody.
+  assertEquals((await listSubs(app)).length, 2);
+});
+
+Deno.test('unsubscribe: a matching subscriber is opted out, nothing is deleted, and a second call keeps the first time', async () => {
+  let t = Date.now();
+  const { app } = await setup(() => t);
+  await signUp(app, { ...GOOD, name: 'Thandi' });
+  await signUp(app, { email: 'other@example.com', consent: true, source: 'footer' });
+  const [other0, thandi0] = await listSubs(app);
+  t += 5000;
+  assertEquals((await unsub(app, { phone: '082 123 4567' })).status, 200);
+  const first = (await listSubs(app)).find((s) => s.id === thandi0.id)!;
+  assert(first.unsubscribedAt);
+  assertEquals([first.name, first.phone, first.consentAt, first.createdAt], ['Thandi', thandi0.phone, thandi0.consentAt, thandi0.createdAt]);
+  // The other person is untouched.
+  assertEquals((await listSubs(app)).find((s) => s.id === other0.id)!.unsubscribedAt, null);
+  t += 5000;
+  assertEquals((await unsub(app, { phone: '0821234567' })).status, 200);
+  const second = (await listSubs(app)).find((s) => s.id === thandi0.id)!;
+  assertEquals(second.unsubscribedAt, first.unsubscribedAt);
+  assertEquals((await listSubs(app)).length, 2);
+});
+
+Deno.test('unsubscribe: every spelling of a phone matches, and an email matches in any case', async () => {
+  const { app } = await setup();
+  for (const spelling of ['+27 82 123 4567', '0027821234567', '27821234567', '(082) 123-4567', ' 082.123.4567 ']) {
+    const fresh = await setup();
+    await signUp(fresh.app, { ...GOOD, phone: '082 123 4567' });
+    assertEquals((await unsub(fresh.app, { phone: spelling })).status, 200);
+    assert((await listSubs(fresh.app))[0].unsubscribedAt, spelling);
+  }
+  await signUp(app, { email: 'Thandi@Example.com', consent: true, source: 'footer' });
+  assertEquals((await unsub(app, { email: '  THANDI@example.COM ' })).status, 200);
+  assert((await listSubs(app))[0].unsubscribedAt);
+  // A phone given with the email matches the row it belongs to too, and either alone is enough.
+  const both = await setup();
+  await signUp(both.app, { phone: '0831112222', consent: true, source: 'footer' });
+  await signUp(both.app, { email: 'two@example.com', consent: true, source: 'footer' });
+  assertEquals((await unsub(both.app, { phone: '083 111 2222', email: 'TWO@example.com' })).status, 200);
+  assertEquals((await listSubs(both.app)).map((s) => s.unsubscribedAt !== null), [true, true]);
+});
+
+Deno.test('unsubscribe: 5 per client IP in a rolling hour, shared with sign-ups; the 6th is 429 and changes nothing', async () => {
+  let t = Date.now();
+  const { app } = await setup(() => t);
+  const ip = { ...JSON_H, 'cf-connecting-ip': '203.0.113.20' };
+  await signUp(app, GOOD);
+  for (let i = 0; i < 5; i++) assertEquals((await unsub(app, { email: `nobody${i}@example.com` }, ip)).status, 200);
+  const sixth = await unsub(app, { phone: '082 123 4567' }, ip);
+  assertEquals(sixth.status, 429);
+  assertEquals(sixth.headers.get('Retry-After'), '3600');
+  assertEquals(await sixth.json(), {
+    error: 'Too many requests from this connection. Please try again in an hour or message us on WhatsApp.',
+    code: 'rate_limited',
+  });
+  assertEquals((await listSubs(app))[0].unsubscribedAt, null);
+  // The sign-up is limited by the same count, and no address and another address are not.
+  assertEquals((await signUp(app, { ...GOOD, phone: '082 555 0001' }, ip)).status, 429);
+  assertEquals((await unsub(app, { phone: '082 123 4567' }, { ...JSON_H, 'cf-connecting-ip': '198.51.100.20' })).status, 200);
+  assertEquals((await listSubs(app))[0].unsubscribedAt === null, false);
+  for (let i = 0; i < 8; i++) assertEquals((await unsub(app, { email: `x${i}@example.com` })).status, 200);
+  // An hour later the same address may ask again.
+  t += HOUR + 1000;
+  assertEquals((await unsub(app, { email: 'later@example.com' }, ip)).status, 200);
+});
+
+Deno.test('unsubscribe: sign-ups and unsubscribes from one address share the limit of 5', async () => {
+  const { app } = await setup();
+  const ip = { ...JSON_H, 'cf-connecting-ip': '203.0.113.21' };
+  for (let i = 0; i < 3; i++) assertEquals((await signUp(app, { ...GOOD, phone: `082 777 000${i}` }, ip)).status, 200);
+  for (let i = 0; i < 2; i++) assertEquals((await unsub(app, { email: `n${i}@example.com` }, ip)).status, 200);
+  assertEquals((await unsub(app, { email: 'n9@example.com' }, ip)).status, 429);
+  assertEquals((await signUp(app, { ...GOOD, phone: '082 777 0009' }, ip)).status, 429);
+  assertEquals((await listSubs(app)).length, 3);
+});
+
+Deno.test('unsubscribe: an invalid request does not use up the limit', async () => {
+  const { app } = await setup();
+  const ip = { ...JSON_H, 'cf-connecting-ip': '203.0.113.22' };
+  for (let i = 0; i < 8; i++) assertEquals((await unsub(app, {}, ip)).status, 400);
+  for (let i = 0; i < 5; i++) assertEquals((await unsub(app, { email: `n${i}@example.com` }, ip)).status, 200);
+  assertEquals((await unsub(app, { email: 'n9@example.com' }, ip)).status, 429);
+});
+
+Deno.test('unsubscribe: a later sign-up clears the opt-out and renews the consent', async () => {
+  let t = Date.now();
+  const { app } = await setup(() => t);
+  await signUp(app, { ...GOOD, name: 'Thandi' });
+  const [before] = await listSubs(app);
+  t += 5000;
+  await unsub(app, { phone: '082 123 4567' });
+  assert((await listSubs(app))[0].unsubscribedAt);
+  t += 5000;
+  assertEquals((await signUp(app, GOOD)).status, 200);
+  const subs = await listSubs(app);
+  assertEquals(subs.length, 1);
+  assertEquals([subs[0].id, subs[0].unsubscribedAt, subs[0].name], [before.id, null, 'Thandi']);
+  assert(subs[0].consentAt > before.consentAt);
+});
+
 Deno.test('subscribe: the admin list has no consent wording and lists newest first', async () => {
   const { app } = await setup();
   await signUp(app, { ...GOOD, name: 'First' });
