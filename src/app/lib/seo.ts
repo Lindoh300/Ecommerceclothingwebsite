@@ -10,8 +10,7 @@ export const SITE_TITLE = "4Nguru The Brand Online";
 export const SITE_DESCRIPTION =
   "South African clothing brand. T-shirts, jerseys, shorts, pants and accessories. Shop online or order on WhatsApp.";
 export const OG_FALLBACK_IMAGE = "/images/og-default.png";
-// The site has been noindex since the Figma Make export (index.html). Kept as is; removing it is
-// the owner's call.
+// The site is noindex for now. Kept as is; removing it is the owner's call.
 export const ROBOTS = "noindex, nofollow";
 
 type MetaDescriptor = Record<string, string>;

@@ -3,6 +3,9 @@ export const shop = {
   email: "malandela03@gmail.com",
   phone: "+27 67 868 4428",        // display format
   whatsappNumber: "27678684428",   // international, digits only, for wa.me
+  hours: "Monday to Friday, 9am - 5pm",
+  deliveryTime: "3-5 working days",
+  returnDays: 30,
   social: {
     tiktok: "https://www.tiktok.com/@4nguru",
     instagram: "https://www.instagram.com/4nguruthebrand",

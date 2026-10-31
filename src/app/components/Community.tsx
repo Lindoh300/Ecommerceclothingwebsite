@@ -6,8 +6,8 @@ import type { PublicEvent, PublicGalleryItem } from "../api/types";
 import { whatsappLink } from "../config/shop";
 import { EventCard } from "./Events";
 import { SubscribeForm } from "./SubscribeForm";
-import { LoadState } from "./prism/LoadState";
-import { ProductImage } from "./prism/ProductImage";
+import { LoadState } from "./common/LoadState";
+import { ProductImage } from "./common/ProductImage";
 
 const errorText = (err: unknown, what: string) => (err instanceof Error ? err.message : `Could not load ${what}`);
 
@@ -50,9 +50,9 @@ export function Community() {
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-[1968px] mx-auto px-6 space-y-16 md:space-y-24">
+      <div className="max-w-[1360px] mx-auto px-6 space-y-16 md:space-y-24">
         <header>
-          <p className="micro text-b60 mb-3">4Nguru</p>
+          <p className="page-kicker micro text-b60 mb-3">4Nguru</p>
           <h1 className="display h-sec mb-6">Community</h1>
           <p className="max-w-xl text-lg leading-[1.45] mb-8">
             Photos from our events, the nights that came before, and a way to hear about the next one.
@@ -74,7 +74,7 @@ export function Community() {
           </h2>
           <LoadState loading={gallery === null && galleryError === null} error={galleryError} onRetry={loadGallery}>
             {gallery && gallery.length === 0 ? (
-              <div className="border border-b10 p-12 text-center">
+              <div className="border border-b10 r-card p-12 text-center">
                 <p className="text-b60">Photos from our events will appear here.</p>
               </div>
             ) : (
@@ -83,7 +83,7 @@ export function Community() {
                   <li key={item.id} className="min-w-0">
                     <figure>
                       <div className="aspect-square overflow-hidden bg-b5">
-                        <ProductImage src={item.image} alt={item.caption || "Photo from a 4Nguru event"} seed={item.id} />
+                        <ProductImage src={item.image} alt={item.caption || "Photo from a 4Nguru event"} />
                       </div>
                       {item.caption && <figcaption className="mt-2 text-sm text-b60 break-words">{item.caption}</figcaption>}
                     </figure>
@@ -100,7 +100,7 @@ export function Community() {
           </h2>
           <LoadState loading={past === null && pastError === null} error={pastError} onRetry={loadPast}>
             {past && past.length === 0 ? (
-              <div className="border border-b10 p-12 text-center">
+              <div className="border border-b10 r-card p-12 text-center">
                 <p className="text-b60">Past events will be listed here.</p>
               </div>
             ) : (

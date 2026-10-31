@@ -105,7 +105,7 @@ export function AdminOrderLinePicker({ products, onAdd }: AdminOrderLinePickerPr
                     className="w-full text-left px-3 py-3 flex items-baseline justify-between gap-3 hover:bg-b5 focus-visible:bg-b5 outline-none"
                   >
                     <span className="min-w-0 text-ink break-words">{p.name}</span>
-                    <span className="font-mono text-sm text-b60 shrink-0">
+                    <span className="text-sm text-b60 shrink-0">
                       R{p.price} · {p.stock} in stock
                     </span>
                   </button>
@@ -125,7 +125,7 @@ export function AdminOrderLinePicker({ products, onAdd }: AdminOrderLinePickerPr
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-ink break-words">{product.name}</div>
-              <div className="font-mono text-sm text-b60">R{product.price}</div>
+              <div className="text-sm text-b60">R{product.price}</div>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={clear}>
               Change

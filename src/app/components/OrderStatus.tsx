@@ -7,7 +7,7 @@ import { getPublicOrder, payOrder } from "../api/orders";
 import { ApiError } from "../api/client";
 import type { OrderStatus as Status, PublicOrder } from "../api/types";
 import { deliveryLabel } from "../utils/orderMessage";
-import { LoadState } from "./prism/LoadState";
+import { LoadState } from "./common/LoadState";
 
 const STEPS = ["Placed", "Paid", "Packed", "Shipped", "Delivered"] as const;
 // How far along the timeline each live status is (index of the last reached step).
@@ -119,7 +119,7 @@ export function OrderStatus() {
         <LoadState loading={loading && !order} error={order ? null : error} onRetry={load}>
           {notFound ? (
             <div className="text-center py-12">
-              <p className="micro text-b60 mb-3">Your order</p>
+              <p className="page-kicker micro text-b60 mb-3">Your order</p>
               <h1 className="display h-sec mb-6">Order not found</h1>
               <p className="text-b60 mb-10">We couldn't find that order. You can look it up with its reference and your phone number.</p>
               <Link to="/track" className="cta">Track an order</Link>
@@ -163,21 +163,21 @@ function OrderBody({
 
   return (
     <div>
-      <p className="micro text-b60 mb-3">Your order</p>
+      <p className="page-kicker micro text-b60 mb-3">Your order</p>
       <h1 className="display h-sec mb-2 break-words">{order.ref}</h1>
       {mounted && <p className="micro text-b60 mb-8">Placed {formatTime(order.createdAt)}</p>}
 
       {confirming && (
-        <p role="status" className="border border-b10 p-4 mb-8">Confirming your payment…</p>
+        <p role="status" className="border border-b10 r-card p-4 mb-8">Confirming your payment…</p>
       )}
       {gaveUpConfirming && (
-        <p role="status" className="border border-b10 p-4 mb-8 text-b60">
+        <p role="status" className="border border-b10 r-card p-4 mb-8 text-b60">
           We haven't received your payment yet. This can take a few minutes. Refresh this page to check again.
         </p>
       )}
 
       {end ? (
-        <div className="border border-prism p-4 mb-8" role="status">
+        <div className="border border-brand p-4 mb-8" role="status">
           <p className="font-display h-weight h-case h-track-sm">{end.title}</p>
           <p className="text-b60 text-sm">{end.text}</p>
         </div>
@@ -187,7 +187,7 @@ function OrderBody({
             const done = i <= reached;
             return (
               <li key={label} className="min-w-0" aria-current={i === reached ? "step" : undefined}>
-                <div className={`h-1 mb-2 ${done ? "bg-prism" : "bg-b10"}`} />
+                <div className={`h-1 mb-2 ${done ? "bg-brand" : "bg-b10"}`} />
                 <p className={`micro break-words ${done ? "text-ink" : "text-b60"}`}>
                   {label}
                   <span className="sr-only">{done ? " (done)" : " (not yet)"}</span>
@@ -226,7 +226,7 @@ function OrderBody({
       )}
 
       {hasTracking && (
-        <div className="border border-b10 p-4 mb-8 space-y-1">
+        <div className="border border-b10 r-card p-4 mb-8 space-y-1">
           <p className="micro text-b60 mb-2">Tracking</p>
           {t.courier && <p>Courier: {t.courier}</p>}
           {t.number && <p className="break-words">Tracking number: <span className="font-mono">{t.number}</span></p>}
@@ -250,7 +250,7 @@ function OrderBody({
                   .join(" | ")}
               </p>
             </div>
-            <p className="font-mono shrink-0">{money(line.subtotal)}</p>
+            <p className="shrink-0">{money(line.subtotal)}</p>
           </div>
         ))}
       </div>
@@ -258,7 +258,7 @@ function OrderBody({
       <div className="space-y-2 text-sm mb-10">
         <div className="flex justify-between">
           <span className="text-b60">Items</span>
-          <span className="font-mono">{money(itemsTotal)}</span>
+          <span>{money(itemsTotal)}</span>
         </div>
         <div className="flex justify-between gap-4">
           <span className="text-b60 min-w-0 break-words">
@@ -266,11 +266,11 @@ function OrderBody({
               ? `${deliveryLabel(order.delivery.method)}${order.delivery.locker ? `: ${order.delivery.locker}` : ""}`
               : "Delivery"}
           </span>
-          <span className="font-mono shrink-0">{order.delivery ? (order.deliveryFee === 0 ? "Free" : money(order.deliveryFee)) : "-"}</span>
+          <span className="shrink-0">{order.delivery ? (order.deliveryFee === 0 ? "Free" : money(order.deliveryFee)) : "-"}</span>
         </div>
         <div className="flex justify-between text-base">
           <span>Total</span>
-          <span className="font-mono">{money(order.total)}</span>
+          <span>{money(order.total)}</span>
         </div>
       </div>
 

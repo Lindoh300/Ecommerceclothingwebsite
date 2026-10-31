@@ -42,7 +42,7 @@ const sections: InfoSection[] = [
     body: (
       <p>
         Delivery fees are shown at checkout, before you pay. See our{" "}
-        <Link to="/delivery" className="text-ink underline underline-offset-4 transition-colors hover:text-prism">
+        <Link to="/delivery" className="text-ink underline underline-offset-4 transition-colors hover:text-b60">
           delivery information
         </Link>
         .

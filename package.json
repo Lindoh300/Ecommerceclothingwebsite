@@ -1,5 +1,5 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "4nguru-store",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -36,7 +36,6 @@
     "@types/qrcode": "1.5.5",
     "@types/react": "18.3.31",
     "@types/react-dom": "18.3.7",
-    "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
     "typescript": "5.9.3",
     "vite": "6.3.5"
@@ -58,5 +57,7 @@
       "vite": "6.3.5"
     }
   },
-  "workspaces": ["."]
+  "workspaces": [
+    "."
+  ]
 }

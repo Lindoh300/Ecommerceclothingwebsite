@@ -1,6 +1,11 @@
 import { InfoPage, ToBeConfirmed, type InfoSection } from "./InfoPage";
 
-const SIZES = ["S", "M", "L", "XL"];
+const SIZES = [
+  { size: "S", chest: "91-96", waist: "76-81" },
+  { size: "M", chest: "97-102", waist: "82-87" },
+  { size: "L", chest: "103-108", waist: "88-93" },
+  { size: "XL", chest: "109-114", waist: "94-99" },
+];
 
 const sections: InfoSection[] = [
   {
@@ -12,16 +17,16 @@ const sections: InfoSection[] = [
             <thead>
               <tr className="border-b border-b10">
                 <th className="micro p-3 text-left font-normal text-b60">Size</th>
-                <th className="micro p-3 text-left font-normal text-b60">Measurements (cm)</th>
+                <th className="micro p-3 text-left font-normal text-b60">Chest (cm)</th>
+                <th className="micro p-3 text-left font-normal text-b60">Waist (cm)</th>
               </tr>
             </thead>
-            <tbody className="font-mono">
-              {SIZES.map((size, idx) => (
-                <tr key={size} className={idx < SIZES.length - 1 ? "border-b border-b10" : ""}>
-                  <td className="p-3 text-ink">{size}</td>
-                  <td className="p-3 text-ink">
-                    <ToBeConfirmed />
-                  </td>
+            <tbody>
+              {SIZES.map((row, idx) => (
+                <tr key={row.size} className={idx < SIZES.length - 1 ? "border-b border-b10" : ""}>
+                  <td className="p-3 text-ink">{row.size}</td>
+                  <td className="p-3 text-ink">{row.chest}</td>
+                  <td className="p-3 text-ink">{row.waist}</td>
                 </tr>
               ))}
             </tbody>
@@ -45,7 +50,7 @@ export function SizeGuide() {
     <InfoPage
       eyebrow="Help"
       title="Size guide"
-      intro="Find your size using the measurements below."
+      intro="Our sizes generally follow standard South African sizing."
       sections={sections}
     />
   );

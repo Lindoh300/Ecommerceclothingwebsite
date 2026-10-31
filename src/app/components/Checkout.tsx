@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Link } from "react-router";
 import { clearCart, findVariant } from "../utils/storage";
 import type { CartLine } from "../utils/storage";
-import { ProductImage } from "./prism/ProductImage";
+import { ProductImage } from "./common/ProductImage";
 import { CheckoutPanel } from "./CheckoutPanel";
 import { useCartQuote } from "./Cart";
 import { useProducts } from "../hooks/useProducts";
@@ -30,8 +30,8 @@ export function Checkout() {
   if (shown.lines.length === 0) {
     return (
       <div className="min-h-screen bg-paper py-16 md:py-24">
-        <div className="max-w-[1968px] mx-auto px-6 text-center">
-          <p className="micro text-b60 mb-3">Your bag</p>
+        <div className="max-w-[1360px] mx-auto px-6 text-center">
+          <p className="page-kicker micro text-b60 mb-3">Your bag</p>
           <h1 className="display h-sec mb-6">Your cart is empty</h1>
           <p className="text-b60 mb-10">Add something to your cart before checking out.</p>
           <Link to="/shop" className="cta">Back to the shop</Link>
@@ -63,7 +63,7 @@ export function Checkout() {
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
       <div className="max-w-3xl mx-auto px-6">
-        <p className="micro text-b60 mb-3">Your bag</p>
+        <p className="page-kicker micro text-b60 mb-3">Your bag</p>
         <h1 className="display h-sec mb-8">Checkout</h1>
 
         <p className="micro text-b60 mb-3">Your order</p>
@@ -74,7 +74,7 @@ export function Checkout() {
             return (
               <div key={`${line.productId}-${index}`} className="flex gap-4 py-4 border-b border-b10">
                 <div className="w-16 h-16 shrink-0 bg-b5 overflow-hidden r-card">
-                  <ProductImage src={product?.image ?? q?.image} alt={q?.name ?? product?.name ?? "Item"} seed={line.productId} />
+                  <ProductImage src={product?.image ?? q?.image} alt={q?.name ?? product?.name ?? "Item"} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-display h-weight h-case h-track-sm break-words">{q?.name ?? product?.name ?? "Loading…"}</p>
@@ -84,7 +84,7 @@ export function Checkout() {
                       .join(" | ")}
                   </p>
                 </div>
-                <p className="font-mono shrink-0">{q ? `R${q.subtotal.toFixed(2)}` : "-"}</p>
+                <p className="shrink-0">{q ? `R${q.subtotal.toFixed(2)}` : "-"}</p>
               </div>
             );
           })}
@@ -92,17 +92,17 @@ export function Checkout() {
         {quoting && <p className="micro text-b60 mb-4">Updating prices…</p>}
         {quoteError && (
           <div className="mb-4 flex flex-wrap items-center gap-4">
-            <p className="text-sm text-prism">{quoteError}</p>
+            <p className="text-sm text-brand">{quoteError}</p>
             <button type="button" onClick={retry} className="linkr">Try again</button>
           </div>
         )}
         {shown.quote && shown.quote.missing.length > 0 && !orderPlaced && (
-          <p className="text-sm text-prism mb-4">
+          <p className="text-sm text-brand mb-4">
             Some items are no longer available. <Link to="/cart" className="linkr">Edit your cart</Link>
           </p>
         )}
         {hasUnavailable && !orderPlaced && (
-          <p className="text-sm text-prism mb-4">
+          <p className="text-sm text-brand mb-4">
             An item in your cart is no longer available. <Link to="/cart" className="linkr">Edit your cart</Link>
           </p>
         )}

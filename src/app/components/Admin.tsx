@@ -215,15 +215,15 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
 
   return (
     <div className="min-h-screen bg-paper">
-      <div className="max-w-[1968px] mx-auto px-4 md:px-6 py-8 md:py-16">
+      <div className="max-w-[1360px] mx-auto px-4 md:px-6 py-8 md:py-16">
         {devMode && (
-          <div className="border border-b10 px-4 py-3 mb-8 font-mono text-sm text-b60">
+          <div className="border border-b10 px-4 py-3 mb-8 text-sm text-b60">
             Local dev mode: writes use the dev-admin token
           </div>
         )}
         {onSignOut && (
           <div className="flex flex-wrap justify-end items-center gap-4 mb-8">
-            <span className="font-mono text-sm text-ink break-all">{email}</span>
+            <span className="text-sm text-ink break-all">{email}</span>
             <Button onClick={onSignOut} variant="outline">
               Sign out
             </Button>

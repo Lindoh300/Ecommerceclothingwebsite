@@ -286,7 +286,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
                         <div className="text-ink break-words">{p?.name ?? "Unknown product"}</div>
                         <div className="text-sm text-b60 break-words">{v ? variantLabel(v) : "Unknown variant"}</div>
                       </div>
-                      <div className="font-mono text-ink shrink-0">R{((p?.price ?? 0) * l.quantity).toFixed(2)}</div>
+                      <div className="text-ink shrink-0">R{((p?.price ?? 0) * l.quantity).toFixed(2)}</div>
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
@@ -301,7 +301,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
                         >
                           <Minus className="w-4 h-4" />
                         </Button>
-                        <span className="font-mono text-ink w-8 text-center" aria-label="Quantity">
+                        <span className="text-ink w-8 text-center" aria-label="Quantity">
                           {l.quantity}
                         </span>
                         <Button
@@ -320,7 +320,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
                         type="button"
                         onClick={() => removeLine(l.variantId)}
                         aria-label={`Remove ${p?.name ?? "item"}`}
-                        className="p-2 text-ink hover:text-prism transition-colors"
+                        className="p-2 text-ink hover:text-b60 transition-colors"
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
@@ -437,7 +437,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
           <fieldset className="space-y-2">
             <legend className="sr-only">How the customer pays</legend>
             <label className="flex items-start gap-3 border border-b10 r-card p-3 cursor-pointer min-h-11">
-              <input type="radio" name="pay" value="whatsapp" checked={pay === "whatsapp"} onChange={() => setPay("whatsapp")} className="mt-1 h-5 w-5 accent-prism" />
+              <input type="radio" name="pay" value="whatsapp" checked={pay === "whatsapp"} onChange={() => setPay("whatsapp")} className="mt-1 h-5 w-5 accent-brand" />
               <span>
                 <span className="text-ink block">Customer pays on WhatsApp or cash</span>
                 <span className="text-sm text-b60 block">The order waits as pending. Mark it paid in Orders once you have the money.</span>
@@ -445,7 +445,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
             </label>
             {onlinePayments && (
               <label className="flex items-start gap-3 border border-b10 r-card p-3 cursor-pointer min-h-11">
-                <input type="radio" name="pay" value="online" checked={pay === "online"} onChange={() => setPay("online")} className="mt-1 h-5 w-5 accent-prism" />
+                <input type="radio" name="pay" value="online" checked={pay === "online"} onChange={() => setPay("online")} className="mt-1 h-5 w-5 accent-brand" />
                 <span>
                   <span className="text-ink block">Send payment link</span>
                   <span className="text-sm text-b60 block">The customer pays online from their order link. Their stock is held for 48 hours. Needs their email.</span>
@@ -459,7 +459,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
         <section className="border-t border-b10 pt-6 space-y-4">
           <div className="flex items-baseline justify-between gap-3">
             <span className="micro text-b60">Estimated total{chosenDelivery && chosenDelivery.price > 0 ? " (with delivery)" : ""}</span>
-            <span className="font-mono text-ink text-xl">R{estimate.toFixed(2)}</span>
+            <span className="text-ink text-xl">R{estimate.toFixed(2)}</span>
           </div>
           <p className="text-sm text-b60">The server sets the final prices and delivery fee.</p>
           {submitError && (
@@ -511,7 +511,7 @@ function OrderCreated({ order, onAnother }: { order: Order; onAnother: () => voi
       <div className="border border-b10 r-card p-4 md:p-6 space-y-4" role="status">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <span className="font-mono text-ink text-2xl">{order.ref}</span>
-          <span className="font-mono text-ink text-2xl">R{order.total.toFixed(2)}</span>
+          <span className="text-ink text-2xl">R{order.total.toFixed(2)}</span>
         </div>
         <div className="text-ink">
           <div className="break-words">{order.customer.name} · {order.customer.phone}</div>
@@ -532,7 +532,7 @@ function OrderCreated({ order, onAnother }: { order: Order; onAnother: () => voi
         </ul>
         <div>
           <Label htmlFor="order-link">Order link</Label>
-          <Input id="order-link" readOnly value={link} onFocus={(e) => e.currentTarget.select()} className="mt-1 h-11 md:h-9 font-mono text-sm" />
+          <Input id="order-link" readOnly value={link} onFocus={(e) => e.currentTarget.select()} className="mt-1 h-11 md:h-9 text-sm" />
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={() => void copy()} className="min-h-11 md:min-h-9">

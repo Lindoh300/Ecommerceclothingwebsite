@@ -35,7 +35,7 @@ interface ScanResult {
 }
 
 const RESULT_STYLE: Record<ResultKind, string> = {
-  valid: "bg-prism text-on-accent border-prism",
+  valid: "bg-brand text-on-accent border-brand",
   already: "bg-ink text-paper border-ink",
   void: "bg-destructive text-destructive-foreground border-destructive",
   not_found: "bg-destructive text-destructive-foreground border-destructive",
@@ -68,7 +68,7 @@ function ResultPanel({ result }: { result: ScanResult }) {
           {[result.name, result.ticketType].filter(Boolean).join(" | ")}
         </p>
       )}
-      {result.offline && <p className="mt-3 font-mono text-sm">Saved offline, will sync</p>}
+      {result.offline && <p className="mt-3 text-sm">Saved offline, will sync</p>}
     </div>
   );
 }
@@ -317,13 +317,13 @@ function DoorEvent({ event, onApiError, onBack }: { event: AdminEvent; onApiErro
           <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="border border-b10 p-4">
               <p className="micro text-b60">Checked in</p>
-              <p className="font-mono text-3xl" aria-label={`${counts.checkedIn} of ${counts.sold} checked in`}>
+              <p className="text-3xl" aria-label={`${counts.checkedIn} of ${counts.sold} checked in`}>
                 {counts.checkedIn} / {counts.sold}
               </p>
             </div>
             <div className="border border-b10 p-4">
               <p className="micro text-b60">Waiting to sync</p>
-              <p className="font-mono text-3xl">{queued}</p>
+              <p className="text-3xl">{queued}</p>
             </div>
           </div>
 
@@ -346,7 +346,6 @@ function DoorEvent({ event, onApiError, onBack }: { event: AdminEvent; onApiErro
                 autoCapitalize="off"
                 spellCheck={false}
                 placeholder="Paste or type the code"
-                className="font-mono"
               />
             </div>
             <button type="submit" className="cta" disabled={!manual.trim()}>

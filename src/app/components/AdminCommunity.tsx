@@ -245,7 +245,7 @@ function AdminSubscribers({ onApiError }: AdminSectionProps) {
           Export CSV
         </button>
       </div>
-      <p className="font-mono text-sm">
+      <p className="text-sm">
         {active.length} active of {subs.data.length}
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -279,7 +279,7 @@ function AdminSubscribers({ onApiError }: AdminSectionProps) {
               </p>
             </div>
             <p className="break-words">{s.name || "No name"}</p>
-            <p className="font-mono text-sm break-all">{contactOf(s)}</p>
+            <p className="text-sm break-all">{contactOf(s)}</p>
             <p className="text-sm text-b60">Signed up {formatEventDate(s.createdAt)}. Consent {formatEventDate(s.consentAt)}.</p>
             {!s.unsubscribedAt && (
               <button type="button" className="linkr min-h-11" disabled={busyId === s.id} onClick={() => void unsubscribe(s)}>

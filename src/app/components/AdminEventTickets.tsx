@@ -163,7 +163,7 @@ export function AdminEventTickets({
           </>
         )}
         {issued && (
-          <div role="status" className="border border-prism p-4">
+          <div role="status" className="border border-brand p-4">
             <p className="micro mb-3">Issued. Send each link to the holder.</p>
             <ul className="space-y-3">
               {issued.map((t, i) => (

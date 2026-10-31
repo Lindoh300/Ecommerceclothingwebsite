@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import { useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
 import { ProductGrid } from "./ProductGrid";
-import { LoadState } from "./prism";
+import { LoadState } from "./common";
 
 interface CategoryPageProps {
   id: string;
@@ -22,11 +22,11 @@ export function CategoryPage({ id }: CategoryPageProps) {
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-[1968px] mx-auto px-6">
+      <div className="max-w-[1360px] mx-auto px-6">
         <LoadState loading={loading} error={error} onRetry={retry}>
           {!category ? (
-            <div className="border border-b10 p-12 text-center">
-              <p className="micro text-b60 mb-3">Shop</p>
+            <div className="border border-b10 r-card p-12 text-center">
+              <p className="page-kicker micro text-b60 mb-3">Shop</p>
               <h1 className="display h-mid mb-6">Category not found</h1>
               <Link to="/" className="linkr text-ink mx-auto">
                 Back to home
@@ -39,7 +39,7 @@ export function CategoryPage({ id }: CategoryPageProps) {
               </p>
               <h1 className="display h-sec mb-12">{category.name}</h1>
               {products.length === 0 ? (
-                <div className="border border-b10 p-12 text-center">
+                <div className="border border-b10 r-card p-12 text-center">
                   <p className="text-b60 text-lg mb-6">No products available in this category yet.</p>
                   <Link to="/" className="linkr text-ink mx-auto">
                     Back to home

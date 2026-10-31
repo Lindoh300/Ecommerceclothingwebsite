@@ -204,7 +204,7 @@ export function AdminDashboard({ onApiError }: AdminSectionProps) {
                       {[v.size, v.color].filter(Boolean).length > 0 ? ` · ${[v.size, v.color].filter(Boolean).join(" ")}` : ""}
                     </span>
                   </span>
-                  <span className={`font-mono shrink-0 ${v.stock === 0 ? "text-status-low" : "text-ink"}`}>
+                  <span className={`shrink-0 ${v.stock === 0 ? "text-status-low" : "text-ink"}`}>
                     {v.stock === 0 ? "out" : `${v.stock} left`}
                   </span>
                 </li>

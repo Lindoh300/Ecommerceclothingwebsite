@@ -1,11 +1,15 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { SlidersHorizontal } from "lucide-react";
 import type { Product } from "../api/types";
 import { useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
 import { shop, whatsappLink } from "../config/shop";
-import { LoadState } from "./prism";
+import { isGallery } from "../config/theme";
+import { matchesQuery } from "../utils/productSearch";
+import { LoadState } from "./common";
 import { ProductGrid } from "./ProductGrid";
+import { ProductSearch } from "./ProductSearch";
 
 type Sort = "newest" | "price-asc" | "price-desc";
 
@@ -30,6 +34,7 @@ interface Filters {
   color: string;
   inStock: boolean;
   sort: Sort;
+  q: string;
 }
 
 function readFilters(params: URLSearchParams): Filters {
@@ -39,6 +44,7 @@ function readFilters(params: URLSearchParams): Filters {
     size: params.get("size") ?? "",
     color: params.get("color") ?? "",
     inStock: params.get("stock") === "1",
+    q: params.get("q") ?? "",
     sort: SORTS.some((s) => s.value === sort) ? (sort as Sort) : "newest",
   };
 }
@@ -73,7 +79,7 @@ function sortProducts(list: Product[], sort: Sort): Product[] {
 }
 
 const chipClass = (selected: boolean) =>
-  `min-h-[40px] max-w-full break-words px-4 py-2 border text-sm transition-colors motion-reduce:transition-none ${
+  `r-chip min-h-[40px] max-w-full break-words px-4 py-2 border text-sm transition-colors motion-reduce:transition-none ${
     selected ? "bg-ink text-paper border-ink" : "bg-paper text-ink border-b10 hover:border-ink"
   }`;
 
@@ -111,6 +117,7 @@ function ChipGroup({
 
 export function Shop() {
   const [params, setParams] = useSearchParams();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const { products: allProducts, loading: productsLoading, error: productsError, reload } = useProducts();
   const { categories } = useCategories();
   const f = readFilters(params);
@@ -125,14 +132,16 @@ export function Shop() {
     return categories.filter((c) => c.active !== false && used.has(c.id)).map((c) => ({ value: c.id, label: c.name }));
   }, [categories, products]);
 
+  const categoryNames = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+
   const visible = useMemo(
-    () => sortProducts(products.filter((p) => matches(p, f)), f.sort),
-    [products, f.category, f.size, f.color, f.inStock, f.sort],
+    () => sortProducts(products.filter((p) => matches(p, f) && matchesQuery(p, f.q, categoryNames.get(p.category) ?? "")), f.sort),
+    [products, f.category, f.size, f.color, f.inStock, f.q, f.sort, categoryNames],
   );
 
-  const activeCount = [f.category, f.size, f.color].filter(Boolean).length + (f.inStock ? 1 : 0);
+  const activeCount = [f.category, f.size, f.color].filter(Boolean).length + (f.inStock ? 1 : 0) + (f.q.trim() ? 1 : 0);
 
-  const update = (changes: Partial<Record<"category" | "size" | "color" | "stock" | "sort", string>>) => {
+  const update = (changes: Partial<Record<"q" | "category" | "size" | "color" | "stock" | "sort", string>>) => {
     const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(changes)) {
       if (!value || (key === "sort" && value === "newest")) next.delete(key);
@@ -143,16 +152,42 @@ export function Shop() {
   const clear = () => setParams(new URLSearchParams(f.sort === "newest" ? undefined : { sort: f.sort }), { replace: true, preventScrollReset: true });
 
   const categoryName = categories.find((c) => c.id === f.category)?.name ?? f.category;
-  const activeSummary = [f.category && categoryName, f.size && `size ${f.size}`, f.color, f.inStock && "in stock"].filter(Boolean).join(", ");
+  const activeSummary = [f.q.trim() && `"${f.q.trim()}"`, f.category && categoryName, f.size && `size ${f.size}`, f.color, f.inStock && "in stock"]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-[1968px] mx-auto px-6">
+      <div className="max-w-[1360px] mx-auto px-6">
         <p className="micro text-b60 mb-3">Shop / {visible.length} {visible.length === 1 ? "item" : "items"}</p>
         <h1 className="display h-sec mb-10">All products</h1>
 
+        {isGallery && (
+          <div className="mb-8">
+            <ProductSearch value={f.q} onValueChange={(v) => update({ q: v })} />
+          </div>
+        )}
+
         <LoadState loading={productsLoading} error={productsError} onRetry={() => reload().catch(() => {})}>
-          <div className="mb-10 grid gap-6 border-y border-b10 py-6 md:grid-cols-2 lg:grid-cols-4" role="search" aria-label="Filter products">
+          {isGallery && (
+            <button
+              type="button"
+              className="cta cta-quiet shop-filters-toggle"
+              aria-expanded={filtersOpen}
+              aria-controls="shop-filters"
+              onClick={() => setFiltersOpen((open) => !open)}
+            >
+              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+              Filters{activeCount > 0 ? ` (${activeCount})` : ""}
+            </button>
+          )}
+          <div
+            id="shop-filters"
+            data-open={filtersOpen}
+            className="shop-filters mb-10 grid gap-6 border-y border-b10 py-6 md:grid-cols-2 lg:grid-cols-4"
+            role="search"
+            aria-label="Filter products"
+          >
             <ChipGroup label="Category" options={categoryOptions} value={f.category} onChange={(v) => update({ category: v })} />
             <ChipGroup label="Size" options={sizes.map((s) => ({ value: s, label: s }))} value={f.size} onChange={(v) => update({ size: v })} />
             <ChipGroup label="Colour" options={colors.map((c) => ({ value: c, label: c }))} value={f.color} onChange={(v) => update({ color: v })} />
@@ -163,7 +198,7 @@ export function Shop() {
                   id="shop-sort"
                   value={f.sort}
                   onChange={(e) => update({ sort: e.target.value })}
-                  className="h-10 w-full border border-b10 bg-paper px-3 text-sm text-ink"
+                  className="r-chip h-10 w-full border border-b10 bg-paper px-3 text-sm text-ink"
                 >
                   {SORTS.map((s) => (
                     <option key={s.value} value={s.value}>{s.label}</option>
@@ -175,7 +210,7 @@ export function Shop() {
                   type="checkbox"
                   checked={f.inStock}
                   onChange={(e) => update({ stock: e.target.checked ? "1" : "" })}
-                  className="h-5 w-5 accent-[var(--prism)]"
+                  className="h-5 w-5 accent-[var(--brand)]"
                 />
                 In stock only
               </label>
@@ -188,7 +223,7 @@ export function Shop() {
           </div>
 
           {visible.length === 0 ? (
-            <div className="border border-b10 p-8 text-center md:p-12">
+            <div className="r-card border border-b10 p-8 text-center md:p-12">
               <h2 className="display h-mid mb-4">Nothing matches</h2>
               <p className="mx-auto mb-8 max-w-prose text-b60">
                 {activeCount > 0

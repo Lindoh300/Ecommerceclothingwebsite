@@ -271,7 +271,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
   return (
     <div>
       {order ? (
-        <div className="border border-b10 p-4 mb-4">
+        <div className="border border-b10 r-card p-4 mb-4">
           <p className="micro text-b60 mb-2">Order {order.ref} saved</p>
           {order.delivery && (
             <div className="flex justify-between mb-2">
@@ -279,12 +279,12 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
                 {deliveryLabel(order.delivery.method)}
                 {order.delivery.locker ? `: ${order.delivery.locker}` : ""}
               </span>
-              <span className="font-mono">{priceLabel(order.delivery.fee)}</span>
+              <span>{priceLabel(order.delivery.fee)}</span>
             </div>
           )}
           <div className="flex justify-between mb-2">
             <span>Total</span>
-            <span className="font-mono">R{order.total.toFixed(2)}</span>
+            <span>R{order.total.toFixed(2)}</span>
           </div>
           {redirecting ? (
             <p className="text-b60 text-sm" role="status">Taking you to the payment page…</p>
@@ -309,7 +309,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               aria-invalid={!!errors.name}
               onChange={(e) => setName(e.target.value)}
             />
-            {errors.name && <p className="text-sm text-prism">{errors.name}</p>}
+            {errors.name && <p className="text-sm text-brand">{errors.name}</p>}
           </div>
           <div className="space-y-1">
             <Label htmlFor="checkout-phone">Phone</Label>
@@ -323,7 +323,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               aria-invalid={!!errors.phone}
               onChange={(e) => setPhone(e.target.value)}
             />
-            {errors.phone && <p className="text-sm text-prism">{errors.phone}</p>}
+            {errors.phone && <p className="text-sm text-brand">{errors.phone}</p>}
           </div>
           <div className="space-y-1">
             <Label htmlFor="checkout-email">{payment === "online" ? "Email" : "Email (optional)"}</Label>
@@ -337,7 +337,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               aria-invalid={!!errors.email}
               onChange={(e) => setEmail(e.target.value)}
             />
-            {errors.email && <p className="text-sm text-prism">{errors.email}</p>}
+            {errors.email && <p className="text-sm text-brand">{errors.email}</p>}
           </div>
           <div className="space-y-1">
             <Label htmlFor="checkout-note">Note (optional)</Label>
@@ -349,7 +349,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               aria-invalid={!!errors.note}
               onChange={(e) => setNote(e.target.value)}
             />
-            {errors.note && <p className="text-sm text-prism">{errors.note}</p>}
+            {errors.note && <p className="text-sm text-brand">{errors.note}</p>}
           </div>
 
           {loadingOptions && <p className="text-sm text-b60">Loading delivery options…</p>}
@@ -365,7 +365,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
                 <label
                   key={o.id}
                   className={`flex items-center justify-between gap-4 border p-3 cursor-pointer r-card ${
-                    method === o.id ? "border-prism" : "border-b10"
+                    method === o.id ? "border-brand" : "border-b10"
                   }`}
                 >
                   <span className="flex items-center gap-3">
@@ -374,16 +374,16 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
                       name="checkout-delivery"
                       value={o.id}
                       checked={method === o.id}
-                      className="accent-prism"
+                      className="accent-brand"
                       onChange={() => setMethod(o.id)}
                     />
                     {o.name}
                   </span>
-                  <span className="font-mono">{priceLabel(o.price)}</span>
+                  <span>{priceLabel(o.price)}</span>
                 </label>
               ))}
               {errors.delivery && (
-                <p id="checkout-delivery-error" role="alert" className="text-sm text-prism">
+                <p id="checkout-delivery-error" role="alert" className="text-sm text-brand">
                   {errors.delivery}
                 </p>
               )}
@@ -412,7 +412,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
                     aria-invalid={!!errors[key]}
                     onChange={(e) => setAddr(key, e.target.value)}
                   />
-                  {errors[key] && <p className="text-sm text-prism">{errors[key]}</p>}
+                  {errors[key] && <p className="text-sm text-brand">{errors[key]}</p>}
                 </div>
               ))}
             </div>
@@ -428,7 +428,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
                 aria-invalid={!!errors.locker}
                 onChange={(e) => setLocker(e.target.value)}
               />
-              {errors.locker && <p className="text-sm text-prism">{errors.locker}</p>}
+              {errors.locker && <p className="text-sm text-brand">{errors.locker}</p>}
             </div>
           )}
           <fieldset className="space-y-2" disabled={submitting}>
@@ -441,14 +441,14 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
             ).map(([id, label, hint]) => (
               <label
                 key={id}
-                className={`flex items-start gap-3 border p-3 cursor-pointer r-card ${payment === id ? "border-prism" : "border-b10"}`}
+                className={`flex items-start gap-3 border p-3 cursor-pointer r-card ${payment === id ? "border-brand" : "border-b10"}`}
               >
                 <input
                   type="radio"
                   name="checkout-payment"
                   value={id}
                   checked={payment === id}
-                  className="accent-prism mt-1"
+                  className="accent-brand mt-1"
                   onChange={() => setPayment(id)}
                 />
                 <span className="min-w-0">
@@ -463,15 +463,15 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
             <p className="micro text-b60">Summary</p>
             <div className="flex justify-between">
               <span className="text-b60">Items</span>
-              <span className="font-mono">{typeof itemsTotal === "number" ? money(itemsTotal) : "-"}</span>
+              <span>{typeof itemsTotal === "number" ? money(itemsTotal) : "-"}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-b60">Delivery</span>
-              <span className="font-mono">{chosen ? priceLabel(chosen.price) : "-"}</span>
+              <span>{chosen ? priceLabel(chosen.price) : "-"}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-b60">Estimated total</span>
-              <span className="font-mono">
+              <span>
                 {typeof itemsTotal === "number" && (chosen || !(options && options.length > 0))
                   ? money(itemsTotal + (chosen?.price ?? 0))
                   : "-"}
@@ -493,7 +493,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
       )}
 
       {order && !redirecting && awaitingConfirm && (
-        <div className="border border-b10 p-4 mt-4">
+        <div className="border border-b10 r-card p-4 mt-4">
           <p className="micro text-b60 mb-2">Did you send your order?</p>
           <p className="text-b60 text-sm mb-4">
             Your cart is kept until you confirm, in case WhatsApp didn't send.

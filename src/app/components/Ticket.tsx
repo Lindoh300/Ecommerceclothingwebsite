@@ -5,7 +5,7 @@ import { ApiError } from "../api/client";
 import type { PublicTicket } from "../api/types";
 import { eventPath } from "../lib/seo";
 import { formatEventDate } from "../utils/eventTime";
-import { LoadState } from "./prism/LoadState";
+import { LoadState } from "./common/LoadState";
 
 const STATUS_TEXT = {
   valid: "Valid",
@@ -40,7 +40,7 @@ function TicketQr({ code }: { code: string }) {
   }
   // The code is drawn dark on a white square by the library, which is what scanners need in any theme.
   return (
-    <div className="w-full max-w-xs aspect-square mx-auto border border-b10 flex items-center justify-center">
+    <div className="w-full max-w-xs aspect-square mx-auto border border-b10 r-card flex items-center justify-center">
       {src ? (
         <img src={src} alt="QR code for this ticket" width={320} height={320} className="w-full h-full" />
       ) : (
@@ -89,14 +89,14 @@ export function Ticket() {
         <LoadState loading={loading && !ticket} error={ticket ? null : error} onRetry={load}>
           {notFound ? (
             <div className="text-center py-12">
-              <p className="micro text-b60 mb-3">Your ticket</p>
+              <p className="page-kicker micro text-b60 mb-3">Your ticket</p>
               <h1 className="display h-sec mb-6">Ticket not found</h1>
               <p className="text-b60 mb-10">We couldn't find that ticket. Check the link you were sent.</p>
               <Link to="/events" className="cta">See events</Link>
             </div>
           ) : ticket ? (
             <div>
-              <p className="micro text-b60 mb-3">Your ticket</p>
+              <p className="page-kicker micro text-b60 mb-3">Your ticket</p>
               <h1 className="display h-sec mb-2 break-words">{ticket.eventTitle}</h1>
               <p className="mb-8 text-b60">{ticket.holderFirstName}</p>
 
@@ -104,7 +104,7 @@ export function Ticket() {
                 role="status"
                 className={`mb-8 p-4 border-2 ${
                   ticket.status === "valid"
-                    ? "border-prism"
+                    ? "border-brand"
                     : ticket.status === "used"
                       ? "border-ink bg-b5"
                       : "border-destructive bg-b5"

@@ -7,8 +7,8 @@ import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight, MessageCircle } fro
 import { toast } from "../lib/toast";
 import { useProduct, useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
-import { ProductImage } from "./prism/ProductImage";
-import { LoadState } from "./prism/LoadState";
+import { ProductImage } from "./common/ProductImage";
+import { LoadState } from "./common/LoadState";
 import { StockMark } from "./ProductCard";
 import { shop, whatsappLink } from "../config/shop";
 import { categoryPath } from "../utils/categoryPath";
@@ -17,7 +17,7 @@ const LOW_STOCK_LIMIT = 3;
 
 // Struck through and disabled when the option has no stock; the text stays for screen readers.
 const optionClass = (selected: boolean) =>
-  `min-w-[48px] min-h-[44px] px-4 py-2 border text-sm transition-colors motion-reduce:transition-none disabled:cursor-not-allowed disabled:border-b10 disabled:bg-b5 disabled:text-b60 disabled:line-through ${
+  `r-chip min-w-[48px] min-h-[44px] px-4 py-2 border text-sm transition-colors motion-reduce:transition-none disabled:cursor-not-allowed disabled:border-b10 disabled:bg-b5 disabled:text-b60 disabled:line-through ${
     selected ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink border-b10 hover:border-ink'
   }`;
 
@@ -107,7 +107,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
   if (!product && !notFound && (loading || error)) {
     return (
       <div className="min-h-screen bg-paper py-12 md:py-16">
-        <div className="max-w-[1968px] mx-auto px-6">
+        <div className="max-w-[1360px] mx-auto px-6">
           <LoadState loading={loading} error={error} onRetry={() => reload().catch(() => {})}>
             {null}
           </LoadState>
@@ -119,7 +119,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
   if (!product) {
     return (
       <div className="min-h-screen bg-paper py-12 md:py-16">
-        <div className="max-w-[1968px] mx-auto px-6 text-center">
+        <div className="max-w-[1360px] mx-auto px-6 text-center">
           <h2 className="display h-mid mb-8">Product not found</h2>
           <button onClick={() => navigate('/')} className="cta">Go Home</button>
         </div>
@@ -154,7 +154,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-[1968px] mx-auto px-6">
+      <div className="max-w-[1360px] mx-auto px-6">
         <div className="mb-10 flex flex-wrap items-center gap-x-6 gap-y-3">
           <button type="button" onClick={() => navigate(-1)} className="linkr text-ink">
             <ArrowLeft className="w-3 h-3" />
@@ -180,21 +180,20 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
                 key={activeImageIndex}
                 src={product.images?.[activeImageIndex] || product.image}
                 alt={product.name}
-                seed={product.id}
               />
               {/* Arrow navigation */}
               {totalImages > 1 && (
                 <>
                   <button
                     onClick={goToPrev}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-prism hover:text-on-accent text-ink border border-b10 p-2 transition-colors"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-brand hover:text-on-accent text-ink border border-b10 r-chip p-2 transition-colors"
                     aria-label="Previous image"
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                   <button
                     onClick={goToNext}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-prism hover:text-on-accent text-ink border border-b10 p-2 transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-brand hover:text-on-accent text-ink border border-b10 r-chip p-2 transition-colors"
                     aria-label="Next image"
                   >
                     <ChevronRight className="w-5 h-5" />
@@ -204,7 +203,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
 
               {/* View label badge */}
               {totalImages > 1 && (
-                <span className="absolute bottom-3 right-3 bg-ink text-paper font-mono text-xs px-2 py-1">
+                <span className="absolute bottom-3 right-3 bg-ink text-paper text-xs px-2 py-1 r-chip">
                   {activeImageIndex + 1} / {totalImages}
                 </span>
               )}
@@ -222,11 +221,11 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
                       onClick={() => setActiveImageIndex(index)}
                       aria-label={`Show image ${index + 1} of ${totalImages}`}
                       aria-pressed={isActive}
-                      className={`relative aspect-square overflow-hidden border transition-colors motion-reduce:transition-none ${
-                        isActive ? 'border-ink' : 'border-b10 hover:border-prism'
+                      className={`relative aspect-square overflow-hidden border r-card transition-colors motion-reduce:transition-none ${
+                        isActive ? 'border-ink' : 'border-b10 hover:border-brand'
                       }`}
                     >
-                      <ProductImage src={img} alt="" seed={`${product.id}-${index}`} />
+                      <ProductImage src={img} alt="" />
                     </button>
                   );
                 })}
@@ -236,10 +235,10 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
 
           {/* Product Info */}
           <div className="min-w-0 md:sticky md:top-24">
-            <p className="micro text-b60 mb-3">{categoryName}</p>
+            <p className="page-kicker micro text-b60 mb-3">{categoryName}</p>
             <h1 className="display h-mid mb-4">{product.name}</h1>
             <div className="mb-6 flex flex-wrap items-center gap-4">
-              <p className="font-mono text-2xl text-ink">R{product.price}</p>
+              <p className="text-2xl text-ink">R{product.price}</p>
               <StockMark product={product} />
             </div>
             <p className="text-b60 mb-8 whitespace-pre-line">{product.description}</p>
@@ -294,11 +293,11 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
                   type="button"
                   onClick={() => setQuantity(Math.max(1, shownQuantity - 1))}
                   aria-label="Decrease quantity"
-                  className="w-10 h-10 border border-b10 text-ink hover:border-ink transition-colors"
+                  className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors"
                 >
                   -
                 </button>
-                <span className="w-12 h-10 border border-b10 flex items-center justify-center font-mono" aria-live="polite">
+                <span className="w-12 h-10 border border-b10 r-chip flex items-center justify-center" aria-live="polite">
                   {shownQuantity}
                 </span>
                 <button
@@ -306,7 +305,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
                   onClick={() => setQuantity(Math.min(Math.max(1, remaining), shownQuantity + 1))}
                   disabled={!optionsChosen || shownQuantity >= remaining}
                   aria-label="Increase quantity"
-                  className="w-10 h-10 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   +
                 </button>
@@ -340,7 +339,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
               href={whatsappLink(askMessage)}
               target="_blank"
               rel="noopener noreferrer"
-              className="caps mt-4 flex h-12 w-full items-center justify-center gap-2 border border-ink px-6 text-sm text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:bg-ink focus-visible:text-paper motion-reduce:transition-none"
+              className="caps mt-4 flex h-12 w-full items-center justify-center gap-2 border border-ink r-chip px-6 text-sm text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:bg-ink focus-visible:text-paper motion-reduce:transition-none"
             >
               <MessageCircle className="w-5 h-5" aria-hidden="true" />
               Ask on WhatsApp

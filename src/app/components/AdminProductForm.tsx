@@ -363,7 +363,7 @@ export function AdminProductForm({
                 type="checkbox"
                 checked={formData.active}
                 onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-                className="h-5 w-5 accent-prism"
+                className="h-5 w-5 accent-brand"
               />
               <span>Active (shown in the shop)</span>
             </label>
@@ -380,7 +380,7 @@ export function AdminProductForm({
           <div className="md:col-span-2">
             <div className="flex flex-wrap justify-between items-end gap-2 mb-1">
               <Label>Product Images (Max 3)</Label>
-              <span className="font-mono text-[11px] text-b60 border border-b10 px-2 py-1">
+              <span className="text-[11px] text-b60 border border-b10 px-2 py-1">
                 JPEG, PNG, WebP or GIF, up to 2MB each
               </span>
             </div>
@@ -406,7 +406,7 @@ export function AdminProductForm({
                       className="text-xs"
                     />
                     {uploading[index] && (
-                      <div className="aspect-square border border-b10 bg-b5 flex items-center justify-center font-mono text-xs text-b60">
+                      <div className="aspect-square border border-b10 bg-b5 flex items-center justify-center text-xs text-b60">
                         Uploading…
                       </div>
                     )}
@@ -427,7 +427,7 @@ export function AdminProductForm({
                           type="button"
                           onClick={() => setImage(index, "")}
                           aria-label={`Remove image ${index + 1}`}
-                          className="absolute top-1 right-1 bg-ink text-paper hover:bg-prism p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute top-1 right-1 bg-ink text-paper hover:bg-brand p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
                           <X className="w-3 h-3" />
                         </button>

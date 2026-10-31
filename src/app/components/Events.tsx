@@ -4,8 +4,8 @@ import { listEvents } from "../api/events";
 import type { PublicEvent } from "../api/types";
 import { eventPath } from "../lib/seo";
 import { formatEventDate, formatPrice } from "../utils/eventTime";
-import { LoadState } from "./prism/LoadState";
-import { ProductImage } from "./prism/ProductImage";
+import { LoadState } from "./common/LoadState";
+import { ProductImage } from "./common/ProductImage";
 
 /** "Free", "R250", "From R250", "Free and paid tickets", or a note when nothing is on sale. */
 function priceLine(event: PublicEvent): string {
@@ -22,13 +22,13 @@ export function EventCard({ event }: { event: PublicEvent }) {
   return (
     <Link to={eventPath(event.slug)} className="group block border border-b10 r-card hover:border-ink transition-colors motion-reduce:transition-none">
       <div className="aspect-[16/9] overflow-hidden bg-b5">
-        <ProductImage src={event.image} alt={event.title} seed={event.slug} />
+        <ProductImage src={event.image} alt={event.title} />
       </div>
       <div className="p-4 md:p-6">
         <p className="micro text-b60 mb-2">{formatEventDate(event.startsAt)}</p>
         <h2 className="display h-mid mb-2 break-words">{event.title}</h2>
         {where && <p className="text-b60 break-words">{where}</p>}
-        {price && <p className="font-mono mt-3">{price}</p>}
+        {price && <p className="mt-3">{price}</p>}
       </div>
     </Link>
   );
@@ -59,12 +59,12 @@ export function Events() {
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-[1968px] mx-auto px-6">
-        <p className="micro text-b60 mb-3">4Nguru</p>
+      <div className="max-w-[1360px] mx-auto px-6">
+        <p className="page-kicker micro text-b60 mb-3">4Nguru</p>
         <h1 className="display h-sec mb-10">Events</h1>
         <LoadState loading={events === null && error === null} error={error} onRetry={load}>
           {events && events.length === 0 ? (
-            <div className="border border-b10 p-12 text-center">
+            <div className="border border-b10 r-card p-12 text-center">
               <p className="text-b60">No events announced yet.</p>
             </div>
           ) : (

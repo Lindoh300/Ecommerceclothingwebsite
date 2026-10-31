@@ -203,7 +203,7 @@ function OrderLines({ order }: { order: Order }) {
 function OrderStatusInfo({ order }: { order: Order }) {
   return (
     <>
-      <div className={`micro ${isWaiting(order) ? "text-prism" : "text-b60"}`}>{order.status.replace(/_/g, " ")}</div>
+      <div className={`micro ${isWaiting(order) ? "text-brand" : "text-b60"}`}>{order.status.replace(/_/g, " ")}</div>
       {order.paymentFlag && <div className="text-b60 text-sm">{PAYMENT_FLAG_NOTE[order.paymentFlag]}</div>}
       {order.tracking && (order.tracking.courier || order.tracking.number) && (
         <div className="text-b60 text-sm">
@@ -248,7 +248,7 @@ function OrderCard({ order, busy, onSaveTracking, ...on }: OrderHandlers & Track
           <div className="text-b60 text-sm">{formatDate(order.createdAt)}</div>
         </div>
         <div className="text-right shrink-0">
-          <div className="font-mono text-ink">R{order.total.toFixed(2)}</div>
+          <div className="text-ink">R{order.total.toFixed(2)}</div>
           <OrderStatusInfo order={order} />
         </div>
       </div>
@@ -306,7 +306,7 @@ function OrdersTable({ orders, busy, onSaveTracking, ...on }: OrderHandlers & Tr
                 <td className="px-6 py-4 text-ink whitespace-nowrap">
                   <OrderLines order={order} />
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">R{order.total.toFixed(2)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-ink">R{order.total.toFixed(2)}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <OrderStatusInfo order={order} />
                 </td>

@@ -115,7 +115,7 @@ export function AdminEvents({ onApiError }: AdminSectionProps) {
               </div>
               <h3 className="display h-mid break-words mb-1">{e.title}</h3>
               <p className="text-b60 break-words mb-3">{[e.venue, e.city].filter(Boolean).join(", ") || "No venue yet"}</p>
-              <p className="font-mono text-sm mb-1">
+              <p className="text-sm mb-1">
                 {sold} sold of {capacity}
               </p>
               {e.ticketTypes.length > 0 && (

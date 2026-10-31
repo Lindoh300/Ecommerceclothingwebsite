@@ -116,20 +116,20 @@ export function AdminProducts({ onApiError }: AdminSectionProps) {
                     />
                     <div className={`ml-4 ${product.active ? "text-ink" : "text-b60"}`}>
                       <div>{product.name}</div>
-                      {!product.active && <div className="micro text-prism">Inactive</div>}
+                      {!product.active && <div className="micro text-brand">Inactive</div>}
                     </div>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap micro text-b60">{categoryName(product.category)}</td>
-                <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">R{product.price}</td>
-                <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">{product.stock}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-ink">R{product.price}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-ink">{product.stock}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleEdit(product).catch(() => {})}
                       disabled={formFor !== null}
                       aria-label={`Edit ${product.name}`}
-                      className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
+                      className="p-1 text-ink hover:text-b60 transition-colors disabled:opacity-50"
                     >
                       <Edit className="w-6 h-6" />
                     </button>
@@ -137,7 +137,7 @@ export function AdminProducts({ onApiError }: AdminSectionProps) {
                       onClick={() => handleDelete(product.id, product.name)}
                       disabled={busy}
                       aria-label={`Delete ${product.name}`}
-                      className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
+                      className="p-1 text-ink hover:text-b60 transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="w-6 h-6" />
                     </button>

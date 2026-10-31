@@ -52,7 +52,7 @@ export function AdminPackingList({ orders, loading, error, onRefresh, onClose }:
 
       <div className="mb-6 print:mb-4">
         <h2 className="display h-mid print:text-3xl">Packing list</h2>
-        <p className="font-mono text-sm text-b60 mt-2 print:text-ink">
+        <p className="text-sm text-b60 mt-2 print:text-ink">
           {toPack.length} paid {toPack.length === 1 ? "order" : "orders"} to pack · {PACK_DATE.format(new Date())}
         </p>
       </div>
@@ -74,7 +74,7 @@ export function AdminPackingList({ orders, loading, error, onRefresh, onClose }:
                 <span className="font-mono text-ink text-lg">{order.ref}</span>
                 <span className="text-ink break-words">{order.customer.name}</span>
               </div>
-              <div className="text-ink font-mono text-sm mt-1">{order.customer.phone}</div>
+              <div className="text-ink text-sm mt-1">{order.customer.phone}</div>
               <div className="mt-2 text-ink">
                 <span className="micro text-b60">Deliver: </span>
                 {order.delivery ? deliveryLabel(order.delivery.method) : "No delivery details"}
@@ -90,7 +90,7 @@ export function AdminPackingList({ orders, loading, error, onRefresh, onClose }:
                     <span aria-hidden="true" className="mt-1 inline-block h-4 w-4 shrink-0 border border-ink" />
                     <div className="min-w-0 text-ink">
                       <div className="break-words">
-                        <span className="font-mono">{line.quantity} ×</span> {line.name}
+                        <span>{line.quantity} ×</span> {line.name}
                       </div>
                       <div className="text-sm text-b60 print:text-ink break-words">
                         Size {line.size || "—"} · Colour {line.color || "—"} · SKU{" "}

@@ -20,7 +20,7 @@ export function LoadState({
   }
   if (error) {
     return (
-      <div className="border border-b10 p-12 text-center">
+      <div className="border border-b10 r-card p-12 text-center">
         <p className="text-b60 mb-6">{error}</p>
         <button type="button" onClick={onRetry} className="linkr text-ink mx-auto">
           Try again

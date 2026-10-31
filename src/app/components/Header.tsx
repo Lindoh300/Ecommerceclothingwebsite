@@ -1,23 +1,15 @@
 import { Link, NavLink } from "react-router";
 import { ShoppingCart, Menu, X } from "lucide-react";
-import { useCallback, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { getCartCount } from "../utils/storage";
-import { useCategories } from "../hooks/useCategories";
-import { categoryPath } from "../utils/categoryPath";
 
-const LOGO_FALLBACK = '/images/logo-placeholder.svg';
-
-// The logo file is optional. Swap in the placeholder when it is missing.
-function swapToFallback(img: HTMLImageElement) {
-  if (!img.src.endsWith(LOGO_FALLBACK)) img.src = LOGO_FALLBACK;
-}
+const navLinks = [
+  { name: "Shop", path: "/shop" },
+  { name: "Events", path: "/events" },
+  { name: "Community", path: "/community" },
+];
 
 export function Header() {
-  // The server sends the <img>, so a missing logo can fail before React attaches onError.
-  // Check for that once the element is mounted.
-  const logoRef = useCallback((img: HTMLImageElement | null) => {
-    if (img && img.complete && img.naturalWidth === 0) swapToFallback(img);
-  }, []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
 
@@ -32,65 +24,43 @@ export function Header() {
     };
   }, []);
 
-  // If categories fail to load the nav still renders, with just About.
-  const { categories: managed } = useCategories();
-  const categories = [
-    { name: 'Shop', path: '/shop' },
-    ...managed.map((c) => ({ name: c.name, path: categoryPath(c.id) })),
-    { name: 'Events', path: '/events' },
-    { name: 'Community', path: '/community' },
-    { name: 'About', path: '/about' },
-  ];
-
   return (
-    <header className="sticky top-0 z-50 border-b border-b10 bg-paper/[0.92] backdrop-blur-md">
-      <div className="relative mx-auto flex h-16 w-full max-w-[1968px] items-center justify-between px-6">
-        {/* Logo and Brand */}
-        <Link to="/" className="flex items-center gap-3">
-          <img
-            ref={logoRef}
-            src="/images/logo.jpg"
-            alt="Logo"
-            className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover"
-            onError={(e) => swapToFallback(e.currentTarget)}
-          />
-          <span className="font-bold text-2xl md:text-3xl">
+    <header className="site-header sticky top-0 z-50 border-b border-b10 bg-paper">
+      <div className="site-header-row relative mx-auto flex h-14 w-full max-w-[1360px] items-center justify-between px-4 sm:px-6">
+        {/* Logo */}
+        <Link to="/" aria-label="4Nguru home" className="flex items-center">
+          <span className="font-bold text-xl">
             <span className="text-yellow-500">4</span>
             <span className="text-green-500">N</span>
             <span className="text-blue-500">g</span>
             <span className="text-red-500">u</span>
             <span className="text-purple-500">r</span>
             <span className="text-yellow-500">u</span>
-            <span className="text-ink hidden sm:inline"> The Brand Online</span>
           </span>
         </Link>
 
         {/* Desktop Navigation, centred */}
-        <nav className="hidden items-center gap-5 lg:flex 2xl:absolute 2xl:left-1/2 2xl:-translate-x-1/2 2xl:gap-6">
-          {categories.map(cat => (
+        <nav className="site-nav hidden items-center gap-6 md:absolute md:left-1/2 md:flex md:-translate-x-1/2">
+          {navLinks.map(link => (
             <NavLink
-              key={cat.path}
-              to={cat.path}
+              key={link.path}
+              to={link.path}
               className={({ isActive }) =>
-                [
-                  'relative py-1 text-sm caps-track text-ink transition-opacity hover:opacity-60',
-                  isActive
-                    ? "after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:bg-prism after:content-['']"
-                    : '',
-                ].join(' ')
+                ['nav-link text-sm text-ink hover:text-b60 transition-colors', isActive ? 'font-semibold' : ''].join(' ')
               }
             >
-              {cat.name}
+              {link.name}
             </NavLink>
           ))}
         </nav>
 
         {/* Cart and Mobile Menu */}
         <div className="flex items-center gap-4">
-          <Link to="/cart" aria-label="Cart" className="relative text-ink transition-opacity hover:opacity-60">
-            <ShoppingCart className="h-6 w-6" />
+          <Link to="/cart" aria-label="Cart" className="cart-link relative flex items-center gap-2 text-ink transition-opacity hover:opacity-60">
+            <ShoppingCart className="h-5 w-5" />
+            <span className="hidden sm:inline text-sm">Cart</span>
             {cartCount > 0 && (
-              <span className="absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center bg-prism px-1 font-mono text-[10px] leading-none text-on-accent">
+              <span className="cart-badge absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand px-1 text-[10px] leading-none text-on-accent">
                 {cartCount}
               </span>
             )}
@@ -102,7 +72,7 @@ export function Header() {
             aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={mobileMenuOpen}
             aria-controls="mobile-menu"
-            className="text-ink lg:hidden"
+            className="menu-toggle text-ink md:hidden"
           >
             {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
@@ -111,17 +81,17 @@ export function Header() {
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <nav id="mobile-menu" className="border-t border-b10 bg-paper px-6 lg:hidden">
-          {categories.map(cat => (
+        <nav id="mobile-menu" className="mobile-nav border-t border-b10 bg-paper px-6 md:hidden">
+          {navLinks.map(link => (
             <NavLink
-              key={cat.path}
-              to={cat.path}
+              key={link.path}
+              to={link.path}
               className={({ isActive }) =>
-                `block border-b border-b10 py-5 font-display h-case text-3xl leading-none text-ink ${isActive ? 'text-prism' : ''}`
+                ['mobile-nav-link block border-b border-b10 py-4 text-base text-ink', isActive ? 'font-semibold' : ''].join(' ')
               }
               onClick={() => setMobileMenuOpen(false)}
             >
-              {cat.name}
+              {link.name}
             </NavLink>
           ))}
         </nav>

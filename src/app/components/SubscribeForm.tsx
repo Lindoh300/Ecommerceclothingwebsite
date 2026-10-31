@@ -87,11 +87,11 @@ export function SubscribeForm({ source, compact = false }: { source: SubscriberS
           checked={consent}
           disabled={busy}
           onChange={(e) => setConsent(e.target.checked)}
-          className="mt-1 h-5 w-5 shrink-0 accent-prism"
+          className="mt-1 h-5 w-5 shrink-0 accent-brand"
         />
         <label htmlFor={`${uid}-consent`} className="min-w-0 text-sm leading-snug break-words">
           {CONSENT_TEXT}{" "}
-          <Link to="/privacy" className="underline underline-offset-2 hover:text-prism">
+          <Link to="/privacy" className="underline underline-offset-2 hover:text-b60">
             Privacy
           </Link>
         </label>

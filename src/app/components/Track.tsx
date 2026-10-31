@@ -39,7 +39,7 @@ export function Track() {
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
       <div className="max-w-xl mx-auto px-6">
-        <p className="micro text-b60 mb-3">Orders</p>
+        <p className="page-kicker micro text-b60 mb-3">Orders</p>
         <h1 className="display h-sec mb-4">Track an order</h1>
         <p className="text-b60 mb-8">Enter the reference from your order and the phone number you used.</p>
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
@@ -51,7 +51,7 @@ export function Track() {
             <Label htmlFor="track-phone">Phone</Label>
             <Input id="track-phone" type="tel" value={phone} maxLength={20} autoComplete="tel" disabled={busy} onChange={(e) => setPhone(e.target.value)} />
           </div>
-          {message && <p role="alert" className="text-sm text-prism">{message}</p>}
+          {message && <p role="alert" className="text-sm text-brand">{message}</p>}
           <button type="submit" disabled={busy} className="cta w-full">{busy ? "Looking…" : "Find my order"}</button>
         </form>
       </div>

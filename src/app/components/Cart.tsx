@@ -4,7 +4,7 @@ import type { CartLine } from "../utils/storage";
 import { getCart, removeFromCart, updateCartItem, findVariant, getVariantStock } from "../utils/storage";
 import { Trash2 } from "lucide-react";
 import { toast } from "../lib/toast";
-import { ProductImage } from "./prism/ProductImage";
+import { ProductImage } from "./common/ProductImage";
 import { useProducts } from "../hooks/useProducts";
 import { quoteCart } from "../api/products";
 import type { CartQuote } from "../api/types";
@@ -128,8 +128,8 @@ export function Cart() {
   if (lines.length === 0) {
     return (
       <div className="min-h-screen bg-paper py-16 md:py-24">
-        <div className="max-w-[1968px] mx-auto px-6 text-center">
-          <p className="micro text-b60 mb-3">Your bag</p>
+        <div className="max-w-[1360px] mx-auto px-6 text-center">
+          <p className="page-kicker micro text-b60 mb-3">Your bag</p>
           <h2 className="display h-sec mb-6">Your cart is empty</h2>
           <p className="text-b60 mb-10">Start shopping to add items to your cart</p>
           <Link to="/" className="cta">Continue shopping</Link>
@@ -140,8 +140,8 @@ export function Cart() {
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-[1968px] mx-auto px-6">
-        <p className="micro text-b60 mb-3">Your bag</p>
+      <div className="max-w-[1360px] mx-auto px-6">
+        <p className="page-kicker micro text-b60 mb-3">Your bag</p>
         <h1 className="display h-sec mb-12">Cart</h1>
 
         <div className="grid lg:grid-cols-3 gap-10 lg:gap-16">
@@ -154,7 +154,7 @@ export function Cart() {
                 return (
                 <div key={`${item.productId}-${index}`} className="flex gap-6 py-6 border-b border-b10">
                   <div className="w-24 h-24 shrink-0 bg-b5 overflow-hidden r-card">
-                    <ProductImage src={product?.image} alt={product?.name ?? "Unavailable item"} seed={item.productId} />
+                    <ProductImage src={product?.image} alt={product?.name ?? "Unavailable item"} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-display h-weight h-case h-track-sm mb-1">{product?.name ?? (unavailable ? "Unavailable item" : "Loading…")}</h3>
@@ -164,15 +164,15 @@ export function Cart() {
                       {item.color && `Color: ${item.color}`}
                     </p>
                     {unavailable ? (
-                      <p className="text-prism">No longer available</p>
+                      <p className="text-brand">No longer available</p>
                     ) : product ? (
-                      <p className="font-mono text-ink">R{product.price}</p>
+                      <p className="text-ink">R{product.price}</p>
                     ) : null}
                   </div>
                   <div className="flex flex-col items-end justify-between">
                     <button
                       onClick={() => handleRemove(index)}
-                      className="text-b60 hover:text-prism transition-colors "
+                      className="text-b60 hover:text-ink transition-colors"
                       aria-label="Remove item"
                     >
                       <Trash2 className="w-5 h-5" />
@@ -180,15 +180,15 @@ export function Cart() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity - 1)}
-                          className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-8 h-8 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         -
                       </button>
-                      <span className="w-8 text-center font-mono">{item.quantity}</span>
+                      <span className="w-8 text-center">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
                         disabled={unavailable || quantityInCart(item) >= availableFor(item)}
-                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-8 h-8 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         +
                       </button>
@@ -202,18 +202,18 @@ export function Cart() {
 
           {/* Order Summary */}
           <div className="lg:col-span-1">
-            <div className="border border-b10 p-6 sticky top-24">
+            <div className="border border-b10 r-card p-6 sticky top-24">
               <p className="micro text-b60 mb-4">Order summary</p>
               <div className="border-t border-b10 pt-4 mb-6">
                 <div className="flex justify-between">
                   <span>Items total</span>
-                  <span className="font-mono">{quote ? `R${total.toFixed(2)}` : "-"}</span>
+                  <span>{quote ? `R${total.toFixed(2)}` : "-"}</span>
                 </div>
                 <p className="text-sm text-b60 mt-2">Delivery is added at checkout.</p>
                 {quoting && <p className="micro text-b60 mt-2">Updating…</p>}
                 {quoteError && (
                   <div className="mt-2 flex flex-wrap items-center gap-4">
-                    <p className="text-sm text-prism">{quoteError}</p>
+                    <p className="text-sm text-brand">{quoteError}</p>
                     <button type="button" onClick={retry} className="linkr">
                       Try again
                     </button>

@@ -160,7 +160,7 @@ function TicketTypeRow({
         </div>
       </div>
       <label className="flex items-center gap-3 min-h-11 text-sm">
-        <input type="checkbox" checked={active} disabled={busy} onChange={(e) => setActive(e.target.checked)} className="h-5 w-5 accent-prism" />
+        <input type="checkbox" checked={active} disabled={busy} onChange={(e) => setActive(e.target.checked)} className="h-5 w-5 accent-brand" />
         Shown on the event page
       </label>
       <div className="flex flex-wrap gap-4">
@@ -298,7 +298,7 @@ export function AdminEventForm({
           {image && !uploading && (
             <div className="relative aspect-[16/9] max-w-sm border border-b10 overflow-hidden bg-b5">
               <img src={image} alt="Event preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.visibility = "hidden")} onLoad={(e) => (e.currentTarget.style.visibility = "visible")} />
-              <button type="button" onClick={() => setImage("")} aria-label="Remove image" className="absolute top-1 right-1 bg-ink text-paper hover:bg-prism p-1">
+              <button type="button" onClick={() => setImage("")} aria-label="Remove image" className="absolute top-1 right-1 bg-ink text-paper hover:bg-brand p-1">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -312,7 +312,7 @@ export function AdminEventForm({
             <option value="cancelled">Cancelled (hidden)</option>
           </select>
         </div>
-        {event && <p className="font-mono text-xs text-b60 break-all">Link: /event/{event.slug}</p>}
+        {event && <p className="text-xs text-b60 break-all">Link: /event/{event.slug}</p>}
         <div className="flex flex-wrap gap-4">
           <button type="submit" disabled={busy || uploading} className="cta">
             <Save className="w-4 h-4" aria-hidden="true" />

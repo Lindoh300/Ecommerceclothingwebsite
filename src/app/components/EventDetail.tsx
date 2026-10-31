@@ -8,8 +8,8 @@ import { whatsappLink } from "../config/shop";
 import { formatEventDate, formatPrice } from "../utils/eventTime";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { LoadState } from "./prism/LoadState";
-import { ProductImage } from "./prism/ProductImage";
+import { LoadState } from "./common/LoadState";
+import { ProductImage } from "./common/ProductImage";
 
 const MAX_QUANTITY = 4;
 
@@ -108,7 +108,7 @@ function RsvpForm({
 
   if (codes) {
     return (
-      <div role="status" className="border border-prism p-4 mt-4">
+      <div role="status" className="border border-brand p-4 mt-4">
         <p className="font-display h-weight h-case h-track-sm mb-2">You're in</p>
         <p className="text-sm text-b60 mb-4">
           Open each ticket to see its QR code. Save the links or screenshot the QR code: it is what you show at the door.
@@ -127,7 +127,7 @@ function RsvpForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="border border-b10 p-4 mt-4 space-y-4" noValidate aria-label={`RSVP for ${type.name}`}>
+    <form onSubmit={handleSubmit} className="border border-b10 r-card p-4 mt-4 space-y-4" noValidate aria-label={`RSVP for ${type.name}`}>
       <div className="space-y-1">
         <Label htmlFor={`rsvp-name-${type.id}`}>Name</Label>
         <Input id={`rsvp-name-${type.id}`} value={name} maxLength={80} autoComplete="name" disabled={busy} onChange={(e) => setName(e.target.value)} />
@@ -157,7 +157,7 @@ function RsvpForm({
         </select>
       </div>
       {message && (
-        <p role="alert" className="text-sm text-prism">
+        <p role="alert" className="text-sm text-brand">
           {message}
         </p>
       )}
@@ -217,7 +217,7 @@ export function EventDetail({ initialEvent = null, notFound = false }: EventDeta
         <LoadState loading={loading && !event} error={event ? null : error} onRetry={load}>
           {gone || !event ? (
             <div className="text-center py-12">
-              <p className="micro text-b60 mb-3">Events</p>
+              <p className="page-kicker micro text-b60 mb-3">Events</p>
               <h1 className="display h-sec mb-6">Event not found</h1>
               <p className="text-b60 mb-10">We couldn't find that event. It may have been taken down.</p>
               <Link to="/events" className="cta">See events</Link>
@@ -227,7 +227,7 @@ export function EventDetail({ initialEvent = null, notFound = false }: EventDeta
               <Link to="/events" className="linkr mb-8 inline-block">All events</Link>
               {event.image && (
                 <div className="aspect-[16/9] overflow-hidden bg-b5 mb-8">
-                  <ProductImage src={event.image} alt={event.title} seed={event.slug} />
+                  <ProductImage src={event.image} alt={event.title} />
                 </div>
               )}
               <p className="micro text-b60 mb-3">{formatEventDate(event.startsAt)}</p>
@@ -237,7 +237,7 @@ export function EventDetail({ initialEvent = null, notFound = false }: EventDeta
 
               <h2 className="display h-mid mb-4">Tickets</h2>
               {event.ticketTypes.length === 0 ? (
-                <p className="text-b60 border border-b10 p-6">Tickets aren't on sale yet.</p>
+                <p className="text-b60 border border-b10 r-card p-6">Tickets aren't on sale yet.</p>
               ) : (
                 <ul className="border-t border-b10">
                   {event.ticketTypes.map((t) => {
@@ -247,7 +247,7 @@ export function EventDetail({ initialEvent = null, notFound = false }: EventDeta
                       <li key={t.id} className="py-5 border-b border-b10">
                         <div className="flex flex-wrap justify-between items-baseline gap-x-4 gap-y-1">
                           <p className="break-words min-w-0">{t.name}</p>
-                          <p className="font-mono">{formatPrice(t.price)}</p>
+                          <p>{formatPrice(t.price)}</p>
                         </div>
                         <p className={`micro mb-3 ${open ? "text-b60" : "text-ink"}`}>{availabilityText(t)}</p>
                         {open && free && openType !== t.id && (

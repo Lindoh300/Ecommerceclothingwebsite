@@ -1,24 +1,25 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* ===== THEME TOKENS: the Prism defaults =====
+  /* ===== THEME TOKENS: the plain default =====
      Every colour, font, case, tracking and radius the storefront uses comes from here.
-     A rebrand is a block of these tokens: see src/styles/themes/afterdark.css. */
+     A rebrand is a block of these tokens, not a rewrite of the components. */
 
   /* Colour */
-  --prism: #ff4081;            /* accent */
+  --brand: #0a0a0a;            /* accent */
   --ink-on-accent: #ffffff;    /* text on the accent colour */
-  --ink: #000000;              /* text, and the dark fill */
+  --ink: #0a0a0a;              /* text, and the dark fill */
   --paper: #ffffff;            /* page background */
-  --b5: #f1f1f1;              /* faint surface */
+  --b5: #f5f5f5;              /* faint surface */
   --b10: #e5e5e5;             /* hairlines and borders */
-  --b60: #6b6b6b;             /* secondary text */
-  --focus: #ff4081;            /* focus ring */
+  --b40: #8a8a8a;             /* dimmed large text */
+  --b60: #575757;             /* secondary text */
+  --focus: #0a0a0a;            /* focus ring */
   --border: var(--b10);        /* default border colour */
-  --status-low: #ff4081;       /* low-stock marks */
+  --status-low: #8f5400;       /* low-stock marks */
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --input-background: #f3f3f5;
+  --input-background: #ffffff;
   --secondary: oklch(0.95 0.0058 264.53);
   --secondary-foreground: #030213;
   --accent: #e9ebef;
@@ -27,35 +28,25 @@
   --scrim: #000000;            /* dark overlay on photos */
   --on-scrim: #ffffff;         /* text on that overlay */
 
-  /* Generative art palette (GooArt) */
-  --art-1: #561ccd;
-  --art-2: #a169e9;
-  --art-3: #361bec;
-  --art-4: #100091;            /* also the art's base fill */
-  --art-5: #fc7f0c;
-  --art-6: #ff4081;
-  --panel: #0d0a24;
-  --panel-fg: #ece9f7;
-
   /* Type */
-  --font-display: "Asul", Georgia, serif;
+  --font-display: "Cabin", system-ui, sans-serif;
   --font-body: "Cabin", system-ui, sans-serif;
-  --font-code: "IBM Plex Mono", ui-monospace, Menlo, monospace;
-  --font-script: "Covered By Your Grace", cursive;
-  --heading-case: uppercase;
-  --heading-tracking: -0.04em;
-  --heading-leading: 0.96;
-  --heading-weight: 700;
-  --label-case: uppercase;     /* .micro, nav, footer links, small labels */
-  --label-tracking: 0.01em;
-  --button-case: uppercase;    /* .cta */
-  --button-tracking: 0.04em;
+  --font-code: ui-monospace, Menlo, monospace;
+  --heading-case: none;
+  --heading-tracking: -0.01em;
+  --heading-leading: 1.2;
+  --heading-weight: 600;
+  --label-case: none;          /* .micro, nav, footer links, small labels */
+  --label-tracking: 0;
+  --button-case: none;         /* .cta */
+  --button-tracking: 0;
   --button-weight: 600;
 
   /* Shape */
   --radius: 0.25rem;           /* inputs, selects, small buttons */
   --radius-card: 0px;          /* panels, tables, product tiles */
-  --radius-button: 999px;      /* .cta */
+  --radius-button: 0.25rem;    /* .cta */
+  --radius-chip: 0px;          /* pills, option buttons, small controls */
 
   /* Base values that the shadcn/ui primitives read; they follow the tokens above */
   --font-size: 16px;
@@ -69,7 +60,7 @@
   --primary-foreground: var(--paper);
   --muted: var(--b5);
   --muted-foreground: var(--b60);
-  --input: transparent;
+  --input: var(--b10);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --ring: var(--focus);
@@ -78,12 +69,6 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --g1: var(--art-1);
-  --g2: var(--art-2);
-  --g3: var(--art-3);
-  --g4: var(--art-4);
-  --g5: var(--art-5);
-  --g6: var(--art-6);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: #030213;
@@ -170,7 +155,7 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --color-prism: var(--prism);
+  --color-brand: var(--brand);
   --color-on-accent: var(--ink-on-accent);
   --color-focus: var(--focus);
   --color-scrim: var(--scrim);
@@ -180,19 +165,11 @@
   --color-paper: var(--paper);
   --color-b5: var(--b5);
   --color-b10: var(--b10);
+  --color-b40: var(--b40);
   --color-b60: var(--b60);
-  --color-g1: var(--g1);
-  --color-g2: var(--g2);
-  --color-g3: var(--g3);
-  --color-g4: var(--g4);
-  --color-g5: var(--g5);
-  --color-g6: var(--g6);
-  --color-panel: var(--panel);
-  --color-panel-fg: var(--panel-fg);
   --font-display: var(--font-display);
   --font-sans: var(--font-body);
   --font-mono: var(--font-code);
-  --font-hand: var(--font-script);
 }
 
 @layer base {
@@ -208,7 +185,7 @@
   }
 
   ::selection {
-    background: var(--prism);
+    background: var(--brand);
     color: var(--ink-on-accent);
   }
 

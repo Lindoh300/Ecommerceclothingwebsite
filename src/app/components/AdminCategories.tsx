@@ -172,7 +172,7 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
           Add
         </Button>
         {newName.trim() && (
-          <p className="font-mono text-sm text-b60 w-full">Id: {categoryIdFromName(newName) || "-"}</p>
+          <p className="text-sm text-b60 w-full">Id: {categoryIdFromName(newName) || "-"}</p>
         )}
       </form>
 
@@ -207,11 +207,11 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
                       ) : (
                         <div>
                           <div className="text-ink">{cat.name}</div>
-                          <div className="font-mono text-xs text-b60">{cat.id}</div>
+                          <div className="text-xs text-b60">{cat.id}</div>
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 font-mono">
+                    <td className="px-6 py-4">
                       {isEditing ? (
                         <Input
                           aria-label={`Sort for ${cat.name}`}
@@ -232,7 +232,7 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
                         disabled={busy}
                         onChange={() => handleToggle(cat)}
                         aria-label={`${cat.name} active`}
-                        className="h-5 w-5 accent-prism"
+                        className="h-5 w-5 accent-brand"
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -244,7 +244,7 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
                               onClick={() => handleSaveEdit(cat)}
                               disabled={busy}
                               aria-label={`Save ${cat.name}`}
-                              className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
+                              className="p-1 text-ink hover:text-b60 transition-colors disabled:opacity-50"
                             >
                               <Save className="w-6 h-6" />
                             </button>
@@ -252,7 +252,7 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
                               type="button"
                               onClick={() => setEditingId(null)}
                               aria-label="Cancel edit"
-                              className="p-1 text-ink hover:text-prism transition-colors"
+                              className="p-1 text-ink hover:text-b60 transition-colors"
                             >
                               <X className="w-6 h-6" />
                             </button>
@@ -263,7 +263,7 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
                               type="button"
                               onClick={() => startEdit(cat)}
                               aria-label={`Edit ${cat.name}`}
-                              className="p-1 text-ink hover:text-prism transition-colors"
+                              className="p-1 text-ink hover:text-b60 transition-colors"
                             >
                               <Edit className="w-6 h-6" />
                             </button>
@@ -272,7 +272,7 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
                               onClick={() => handleDelete(cat)}
                               disabled={busy}
                               aria-label={`Delete ${cat.name}`}
-                              className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
+                              className="p-1 text-ink hover:text-b60 transition-colors disabled:opacity-50"
                             >
                               <Trash2 className="w-6 h-6" />
                             </button>

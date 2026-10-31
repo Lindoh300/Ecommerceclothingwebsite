@@ -1,6 +1,11 @@
-import { ContactDetails, InfoPage, InfoList, ToBeConfirmed, type InfoSection } from "./InfoPage";
+import { ContactDetails, InfoPage, InfoList, type InfoSection } from "./InfoPage";
+import { shop } from "../config/shop";
 
 const sections: InfoSection[] = [
+  {
+    title: "Where we deliver",
+    body: <p>We deliver nationwide across South Africa.</p>,
+  },
   {
     title: "Delivery options",
     body: (
@@ -20,9 +25,7 @@ const sections: InfoSection[] = [
   {
     title: "Delivery times",
     body: (
-      <p>
-        Delivery times: <ToBeConfirmed />.
-      </p>
+      <p>Door and locker delivery usually takes {shop.deliveryTime}.</p>
     ),
   },
   {

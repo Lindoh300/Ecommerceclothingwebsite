@@ -7,6 +7,7 @@ import {
   ScrollRestoration,
 } from "react-router";
 import type { Route } from "./+types/root";
+import { theme } from "./config/theme";
 import { Root } from "./components/Root";
 import { defaultMeta, originOf } from "./lib/seo";
 import "../styles/index.css";
@@ -19,9 +20,6 @@ export function loader({ request }: Route.LoaderArgs) {
 
 export const meta: Route.MetaFunction = ({ data, location }) =>
   defaultMeta(data?.origin ?? "", location.pathname);
-
-// Optional build-time theme: set VITE_THEME (for example "afterdark") to apply a [data-theme] block.
-const theme = import.meta.env.VITE_THEME || undefined;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
