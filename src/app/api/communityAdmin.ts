@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AdminGalleryItem, GalleryInput, Subscriber } from './types'
+import type { AdminGalleryItem, GalleryInput, ListSendSummary, RestockRequest, Subscriber } from './types'
 
 // Admin calls for the gallery and the mailing list. Imported only by the admin screens.
 
@@ -31,4 +31,40 @@ export function unsubscribeSubscriber(id: string): Promise<Subscriber> {
     method: 'POST',
     admin: true,
   })
+}
+
+/** Restock requests, oldest first. `stock` above 0 means the variant is back. */
+export function listRestockRequests(): Promise<RestockRequest[]> {
+  return apiFetch<RestockRequest[]>('/admin/restock-requests', { admin: true })
+}
+
+export async function removeRestockRequest(id: string): Promise<void> {
+  await apiFetch<void>(`/admin/restock-requests/${encodeURIComponent(id)}`, { method: 'DELETE', admin: true })
+}
+
+/** Past emails to the list, newest first, and whether email is switched on. */
+export function getListSends(): Promise<{ emailOn: boolean; sends: ListSendSummary[] }> {
+  return apiFetch<{ emailOn: boolean; sends: ListSendSummary[] }>('/admin/list-sends', { admin: true })
+}
+
+/** Sends one test copy to `to`. */
+export async function sendListTest(input: { subject: string; body: string; to: string }): Promise<void> {
+  await apiFetch<{ ok: true }>('/admin/list-sends/test', { method: 'POST', body: input, admin: true })
+}
+
+/** Saves a send under a client id (a repeat of the same id returns the same send). Sends nothing yet. */
+export function createListSend(id: string, input: { subject: string; body: string }): Promise<ListSendSummary> {
+  return apiFetch<ListSendSummary>(`/admin/list-sends/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: input,
+    admin: true,
+  })
+}
+
+/** Sends the next batch of up to 100. Call until `send.pending` is 0. */
+export function continueListSend(id: string): Promise<{ send: ListSendSummary; batchFailed: boolean }> {
+  return apiFetch<{ send: ListSendSummary; batchFailed: boolean }>(
+    `/admin/list-sends/${encodeURIComponent(id)}/continue`,
+    { method: 'POST', admin: true },
+  )
 }

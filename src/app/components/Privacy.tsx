@@ -58,7 +58,7 @@ const sections: InfoSection[] = [
         <Link to="/unsubscribe" className="underline underline-offset-2 hover:text-b60">
           unsubscribe
         </Link>{" "}
-        at any time. We then stop sending you news and keep a note that you opted out.
+        at any time. We then stop sending you news and keep a note that you opted out. If you ask to be told when an item is back in stock, we use your contact only for that and remove it afterwards.
       </p>
     ),
   },

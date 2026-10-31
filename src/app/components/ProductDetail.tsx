@@ -10,6 +10,7 @@ import { useCategories } from "../hooks/useCategories";
 import { ProductImage } from "./common/ProductImage";
 import { LoadState } from "./common/LoadState";
 import { StockMark } from "./ProductCard";
+import { RestockForm } from "./RestockForm";
 import { shop, whatsappLink } from "../config/shop";
 import { categoryPath } from "../utils/categoryPath";
 
@@ -333,6 +334,8 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
                 Select {!sizeChosen && !colorChosen ? 'a size and a color' : !sizeChosen ? 'a size' : 'a color'} to add to cart
               </p>
             )}
+
+            <RestockForm key={product.id} product={product} size={size} color={color} />
 
             {/* Ask on WhatsApp: the message names the product and the chosen size and colour. */}
             <a

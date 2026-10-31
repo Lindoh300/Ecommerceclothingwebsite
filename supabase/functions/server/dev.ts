@@ -6,7 +6,9 @@
 // (which also holds the order expiry; 20261030140000_order_expiry_cron.sql only schedules it), and
 // 20261031100000_order_fulfilment.sql (cancelled -> refunded, tracking, extend, lookup), and
 // 20261031110000_payment_links.sql (set_payment_window), and 20261031120000_events.sql (events, ticket types,
-// tickets: memoryEvents below), and 20261031130000_community.sql (gallery and mailing list: memoryCommunity).
+// tickets: memoryEvents below), and 20261031130000_community.sql (gallery and mailing list: memoryCommunity), and
+// 20261031150000_restock_alerts.sql (restock requests: memoryRestock; unsubscribing also removes them), and
+// 20261031160000_list_sends.sql (sending to the mailing list: memoryListSends).
 // When one changes, change the other.
 import { createApp, deriveImage, resolveVariant } from './app.ts';
 import { createFakeProvider } from './fake_payments.ts';
@@ -18,6 +20,12 @@ import type {
   AdminGalleryItem,
   CommunityStore,
   GalleryInput,
+  ListSendRecipient,
+  ListSendStore,
+  ListSendSummary,
+  RestockRequest,
+  RestockResult,
+  RestockStore,
   Subscriber,
   UpsertGalleryResult,
   AdminTicketType,
@@ -1105,20 +1113,42 @@ const SIGNUPS_PER_IP = 5;
 type StoredSubscriber = Subscriber & { consentText: string };
 
 /**
+ * The address limit, shared by sign-ups, unsubscribes and restock requests (one log, like subscribe_ip_log). Returns
+ * `takeSlot`: true when the address may go ahead (and the use is recorded), false when it is over the limit (nothing
+ * recorded). No address, no limit. Share ONE between memoryCommunity and memoryRestock, as SQL shares the one table.
+ */
+export function createSignupLimit(now: () => number = Date.now): (ip: string | undefined) => boolean {
+  const log = new Map<string, number[]>();
+  return (ip) => {
+    if (!ip) return true;
+    const recent = (log.get(ip) ?? []).filter((t) => t > now() - HOUR_MS);
+    if (recent.length >= SIGNUPS_PER_IP) {
+      log.set(ip, recent);
+      return false;
+    }
+    log.set(ip, [...recent, now()]);
+    return true;
+  };
+}
+
+/**
  * In-memory gallery and mailing list that mirror the functions in 20261031130000_community.sql: the same results,
  * reasons and rules. It has its own lock (not the shared one): `eventExists` reads the events store, which takes
  * the shared lock, so sharing it would deadlock. `eventExists` stands in for the foreign key to events (a link to an event that is gone reads
  * as no link, like on delete set null). `now` is the clock (milliseconds). The sign-up limit keys on the address
- * itself (SQL keeps a salted hash).
+ * itself (SQL keeps a salted hash); pass `takeSlot` from createSignupLimit to share it with memoryRestock.
+ * `onOptOut` is called for an unsubscribe with a phone or email, after the limit, to remove the restock requests of
+ * that contact (SQL does it in the same update branch).
  */
 export function memoryCommunity(
   lock: Lock = createLock(),
   now: () => number = Date.now,
   eventExists: (id: string) => Promise<boolean> = () => Promise.resolve(false),
+  takeSlot: (ip: string | undefined) => boolean = createSignupLimit(now),
+  onOptOut: (contact: { pn: string | null; email: string | undefined }) => Promise<void> = () => Promise.resolve(),
 ): CommunityStore {
   const gallery = new Map<string, AdminGalleryItem>();
   const subscribers = new Map<string, StoredSubscriber>();
-  const log = new Map<string, number[]>();
   const iso = () => new Date(now()).toISOString();
   // created_at ties (same millisecond) keep insertion order the way a serial clock would: a later row is "newer".
   let seq = 0;
@@ -1131,19 +1161,6 @@ export function memoryCommunity(
     return await Promise.all(
       items.map(async (g) => ({ ...g, eventId: g.eventId && (await eventExists(g.eventId)) ? g.eventId : null })),
     );
-  };
-
-  // The address limit, shared by sign-ups and unsubscribes (one log, like subscribe_ip_log). No address, no limit.
-  // false = over the limit, nothing recorded.
-  const takeSlot = (ip: string | undefined): boolean => {
-    if (!ip) return true;
-    const recent = (log.get(ip) ?? []).filter((t) => t > now() - HOUR_MS);
-    if (recent.length >= SIGNUPS_PER_IP) {
-      log.set(ip, recent);
-      return false;
-    }
-    log.set(ip, [...recent, now()]);
-    return true;
   };
 
   const view = (s: StoredSubscriber): Subscriber => {
@@ -1226,15 +1243,16 @@ export function memoryCommunity(
         return Promise.resolve({ ok: true as const });
       }),
     unsubscribeContact: (input, ip) =>
-      lock((): Promise<Awaited<ReturnType<CommunityStore['unsubscribeContact']>>> => {
-        if (!takeSlot(ip)) return Promise.resolve({ ok: false as const, reason: 'rate_limited' as const });
+      lock(async (): Promise<Awaited<ReturnType<CommunityStore['unsubscribeContact']>>> => {
+        if (!takeSlot(ip)) return { ok: false as const, reason: 'rate_limited' as const };
         const pn = input.phone ? normalisePhone(input.phone) : null;
         const email = input.email?.toLowerCase();
         for (const s of subscribers.values()) {
           const hit = (pn && s.phone && normalisePhone(s.phone) === pn) || (email && s.email && s.email.toLowerCase() === email);
           if (hit) s.unsubscribedAt ??= iso();
         }
-        return Promise.resolve({ ok: true as const });
+        if (pn || email) await onOptOut({ pn, email });
+        return { ok: true as const };
       }),
     listSubscribers: () =>
       lock(() =>
@@ -1251,6 +1269,240 @@ export function memoryCommunity(
         s.unsubscribedAt ??= iso();
         return Promise.resolve(view(s));
       }),
+  };
+}
+
+// --- Restock alerts: mirrors 20261031150000_restock_alerts.sql ---------------------------------------------------
+
+/** Requests older than this are deleted, at most RESTOCK_PURGE_BATCH per call. */
+const RESTOCK_KEEP_MS = 180 * DAY_MS;
+const RESTOCK_PURGE_BATCH = 200;
+
+/** The in-memory restock store, plus what memoryCommunity's `onOptOut` needs. */
+export type MemoryRestockStore = RestockStore & {
+  /** What unsubscribe_contact does to restock_requests: delete every request whose normalised phone or lower-cased
+   *  email matches. `pn` is the normalised phone, `email` the lower-cased address. */
+  removeContact(contact: { pn: string | null; email: string | undefined }): Promise<void>;
+};
+
+type StoredRestock = { id: string; productId: string; variantId: string; phone: string | null; email: string | null; at: number; seq: number };
+
+/**
+ * In-memory restock requests that mirror the functions in 20261031150000_restock_alerts.sql: the same results,
+ * reasons and rules. `getProduct` looks a product up by id (it stands in for the joins and the foreign keys: a
+ * request whose product or variant is gone is dropped, like on delete cascade). `takeSlot` is the address limit
+ * from createSignupLimit, the same one memoryCommunity uses. It has its own lock, so it never waits on the
+ * community store's.
+ */
+export function memoryRestock(
+  lock: Lock = createLock(),
+  now: () => number = Date.now,
+  takeSlot: (ip: string | undefined) => boolean = createSignupLimit(now),
+  getProduct: (id: string) => Promise<Product | null> = () => Promise.resolve(null),
+): MemoryRestockStore {
+  const rows = new Map<string, StoredRestock>();
+  let seq = 0;
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  const lookup = async (productId: string, variantId: string) => {
+    const p = await getProduct(productId);
+    if (!p || p.id !== productId) return null;
+    const v = p.variants.find((x) => x.id === variantId);
+    return v ? { p, v } : null;
+  };
+
+  // on delete cascade: a request goes with its product or variant.
+  const dropOrphans = async () => {
+    for (const r of [...rows.values()]) if (!(await lookup(r.productId, r.variantId))) rows.delete(r.id);
+  };
+
+  const sameContact = (r: StoredRestock, pn: string | null, email: string | undefined) =>
+    Boolean((pn && r.phone && normalisePhone(r.phone) === pn) || (email && r.email && r.email.toLowerCase() === email));
+
+  return {
+    request: (input, ip) =>
+      lock(async (): Promise<RestockResult> => {
+        if (!takeSlot(ip)) return { ok: false, reason: 'rate_limited' };
+        await dropOrphans();
+        // Personal data must not linger: requests past 180 days go, oldest first, at most 200 per call.
+        const old = [...rows.values()].filter((r) => r.at <= now() - RESTOCK_KEEP_MS).sort((a, b) => a.at - b.at || a.seq - b.seq);
+        for (const r of old.slice(0, RESTOCK_PURGE_BATCH)) rows.delete(r.id);
+        const hit = await lookup(input.productId, input.variantId);
+        if (!hit || !hit.p.active) return { ok: false, reason: 'not_found' };
+        if (hit.v.stock > 0) return { ok: false, reason: 'in_stock' };
+        const pn = input.phone ? normalisePhone(input.phone) : null;
+        const email = input.email?.toLowerCase();
+        const repeat = [...rows.values()].some((r) => r.variantId === input.variantId && sameContact(r, pn, email));
+        if (!repeat) {
+          const id = crypto.randomUUID();
+          rows.set(id, {
+            id,
+            productId: input.productId,
+            variantId: input.variantId,
+            phone: input.phone ?? null,
+            email: input.email ?? null,
+            at: now(),
+            seq: ++seq,
+          });
+        }
+        return { ok: true };
+      }),
+    list: () =>
+      lock(async (): Promise<RestockRequest[]> => {
+        await dropOrphans();
+        const out: RestockRequest[] = [];
+        for (const r of [...rows.values()].sort((a, b) => a.at - b.at || a.seq - b.seq)) {
+          const hit = await lookup(r.productId, r.variantId);
+          if (!hit) continue;
+          out.push({
+            id: r.id,
+            productId: r.productId,
+            productName: hit.p.name,
+            productSlug: hit.p.slug,
+            variantId: r.variantId,
+            size: hit.v.size,
+            color: hit.v.color,
+            stock: hit.v.stock,
+            phone: r.phone,
+            email: r.email,
+            createdAt: iso(r.at),
+          });
+        }
+        return out;
+      }),
+    remove: (id) =>
+      lock(async () => {
+        await dropOrphans();
+        return rows.delete(id);
+      }),
+    removeContact: ({ pn, email }) =>
+      lock(() => {
+        for (const r of [...rows.values()]) if (sameContact(r, pn, email)) rows.delete(r.id);
+        return Promise.resolve();
+      }),
+  };
+}
+
+// --- Sending to the mailing list: mirrors 20261031160000_list_sends.sql ----------------------------------------
+
+type ListSendState = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
+type StoredListSend = {
+  id: string;
+  subject: string;
+  body: string;
+  createdAt: number;
+  seq: number;
+  finishedAt: number | null;
+  /** Keyed by subscriber id, like the primary key (send_id, subscriber_id). */
+  recipients: Map<string, { state: ListSendState; attempts: number }>;
+};
+
+/** A recipient is tried this many times before it is 'failed'. */
+const LIST_SEND_MAX_ATTEMPTS = 3;
+
+/**
+ * In-memory list sends that mirror the functions in 20261031160000_list_sends.sql: the same snapshot, claim and finish
+ * rules and the same summary. `listSubscribers` stands in for the subscribers table: it is read when a send is created
+ * (the snapshot) and again when a batch is claimed (the address and the opt-out), as SQL joins subscribers at claim time.
+ * Like the SQL, a row left 'sending' is never claimed again.
+ */
+export function memoryListSends(
+  lock: Lock = createLock(),
+  now: () => number = Date.now,
+  listSubscribers: () => Promise<Subscriber[]> = () => Promise.resolve([]),
+): ListSendStore {
+  const all = new Map<string, StoredListSend>();
+  let seq = 0;
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  const summary = (s: StoredListSend): ListSendSummary => {
+    const n = (state: ListSendState) => [...s.recipients.values()].filter((r) => r.state === state).length;
+    return {
+      id: s.id,
+      subject: s.subject,
+      body: s.body,
+      total: s.recipients.size,
+      pending: n('pending'),
+      sending: n('sending'),
+      sent: n('sent'),
+      failed: n('failed'),
+      skipped: n('skipped'),
+      createdAt: iso(s.createdAt),
+      finishedAt: s.finishedAt === null ? null : iso(s.finishedAt),
+    };
+  };
+  // list_send_close_if_done
+  const closeIfDone = (s: StoredListSend) => {
+    if (s.finishedAt === null && ![...s.recipients.values()].some((r) => r.state === 'pending' || r.state === 'sending')) {
+      s.finishedAt = now();
+    }
+  };
+
+  return {
+    create: (id, input) =>
+      lock(async () => {
+        const existing = all.get(id);
+        if (existing) return { created: false, send: summary(existing) };
+        // The table checks: 1 to 150 and 1 to 10000 characters after trimming.
+        if (input.subject.trim().length < 1 || input.subject.trim().length > 150) throw new Error('subject check violated');
+        if (input.body.trim().length < 1 || input.body.trim().length > 10000) throw new Error('body check violated');
+        const subscribers = await listSubscribers();
+        const s: StoredListSend = {
+          id,
+          subject: input.subject,
+          body: input.body,
+          createdAt: now(),
+          seq: ++seq,
+          finishedAt: null,
+          recipients: new Map(),
+        };
+        for (const sub of subscribers) {
+          if (sub.unsubscribedAt === null && sub.email !== null) s.recipients.set(sub.id, { state: 'pending', attempts: 0 });
+        }
+        all.set(id, s);
+        closeIfDone(s);
+        return { created: true, send: summary(s) };
+      }),
+    claimBatch: (id, limit = 100) =>
+      lock(async () => {
+        const s = all.get(id);
+        if (!s) return null;
+        const byId = new Map((await listSubscribers()).map((x) => [x.id, x]));
+        const recipients: ListSendRecipient[] = [];
+        for (const subscriberId of [...s.recipients.keys()].sort()) {
+          if (recipients.length >= Math.max(limit, 0)) break;
+          const r = s.recipients.get(subscriberId)!;
+          if (r.state !== 'pending') continue;
+          const sub = byId.get(subscriberId);
+          if (!sub || sub.unsubscribedAt !== null || sub.email === null) {
+            r.state = 'skipped';
+          } else {
+            r.state = 'sending';
+            r.attempts++;
+            recipients.push({ subscriberId, email: sub.email });
+          }
+        }
+        closeIfDone(s);
+        return { recipients, summary: summary(s) };
+      }),
+    finishBatch: (id, subscriberIds, ok) =>
+      lock(() => {
+        const s = all.get(id);
+        if (!s) return Promise.resolve(null);
+        for (const subscriberId of new Set(subscriberIds)) {
+          const r = s.recipients.get(subscriberId);
+          if (!r || r.state !== 'sending') continue;
+          r.state = ok ? 'sent' : r.attempts < LIST_SEND_MAX_ATTEMPTS ? 'pending' : 'failed';
+        }
+        closeIfDone(s);
+        return Promise.resolve(summary(s));
+      }),
+    listAdmin: () =>
+      lock(() =>
+        Promise.resolve(
+          [...all.values()].sort((a, b) => b.createdAt - a.createdAt || b.seq - a.seq).slice(0, 50).map(summary),
+        )
+      ),
   };
 }
 
@@ -1298,13 +1550,26 @@ export async function createMemoryDeps(
   const db = createMemoryDb();
   const lock = createLock();
   const events = memoryEvents(lock, now);
+  const products = memoryProducts(db, lock);
+  // One address limit for sign-ups, unsubscribes and restock requests, like subscribe_ip_log.
+  const takeSlot = createSignupLimit(now);
+  const restock = memoryRestock(createLock(), now, takeSlot, (id) => products.get(id));
+  const community = memoryCommunity(
+    createLock(),
+    now,
+    async (id) => (await events.listAdmin()).some((e) => e.id === id),
+    takeSlot,
+    (contact) => restock.removeContact(contact),
+  );
   const deps: Deps & { orders: MemoryOrderStore } = {
-    products: memoryProducts(db, lock),
+    products,
     categories: memoryCategories(db, lock),
     deliveryOptions: memoryDeliveryOptions(db),
     orders: memoryOrders(db, lock, now),
     events,
-    community: memoryCommunity(createLock(), now, async (id) => (await events.listAdmin()).some((e) => e.id === id)),
+    community,
+    restock,
+    listSends: memoryListSends(createLock(), now, () => community.listSubscribers()),
     payments,
     mailer: null,
     siteUrl: null,

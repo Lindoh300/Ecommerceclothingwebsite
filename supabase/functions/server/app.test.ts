@@ -7,6 +7,8 @@ import {
   memoryCategories,
   memoryDeliveryOptions,
   memoryCommunity,
+  memoryListSends,
+  memoryRestock,
   memoryEvents,
   memoryOrders,
   memoryProducts,
@@ -1285,6 +1287,8 @@ Deno.test('delivery: an option that is inactive in the store gives 400 Unknown d
     orders,
     events: memoryEvents(lock),
     community: memoryCommunity(),
+    restock: memoryRestock(),
+    listSends: memoryListSends(),
     deliveryOptions: memoryDeliveryOptions(db),
     payments: null,
     mailer: null,
@@ -2345,7 +2349,10 @@ Deno.test('email: a store that reports changed false (no-op status, mark-paid) s
 });
 
 Deno.test('email: a mailer that throws changes neither the response nor the order, and logs no address', async () => {
-  const boom: Mailer = { send: () => Promise.reject(new Error('down thandi@example.com')) };
+  const boom: Mailer = {
+    send: () => Promise.reject(new Error('down thandi@example.com')),
+    sendBatch: () => Promise.reject(new Error('down thandi@example.com')),
+  };
   const { app } = await mailShop({ mailer: boom, payments: createFakeProvider(crypto.randomUUID()) });
   const logged: string[] = [];
   const orig = console.error;

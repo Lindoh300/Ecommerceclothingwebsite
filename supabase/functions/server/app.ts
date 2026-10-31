@@ -2,6 +2,8 @@ import { type Context, Hono } from 'npm:hono';
 import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
 import { registerCommunityRoutes } from './community_routes.ts';
+import { registerListSendRoutes } from './list_send_routes.ts';
+import { registerRestockRoutes } from './restock_routes.ts';
 import { registerEventRoutes } from './events_routes.ts';
 import { type EmailMessage, type Mailer, orderReceivedEmail, orderShippedEmail, paymentReceivedEmail } from './mailer.ts';
 import type {
@@ -162,6 +164,12 @@ export function createApp(deps: Deps): Hono {
 
   // Community (Phase F): the gallery and the mailing list, community_routes.ts.
   registerCommunityRoutes(app, deps, guard);
+
+  // Restock alerts (Phase F): customers ask to be told, the owner sees who waits, restock_routes.ts.
+  registerRestockRoutes(app, deps, guard);
+
+  // Sending to the mailing list (Phase F): the owner writes an email and sends it in batches, list_send_routes.ts.
+  registerListSendRoutes(app, deps, guard);
 
   app.get(`${PREFIX}/health`, (c) => c.json({ status: 'ok' }));
 

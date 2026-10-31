@@ -16,7 +16,7 @@ import {
 } from "../api/orders";
 import type { Order, OrderStatus } from "../api/types";
 import { deliveryLabel } from "../utils/orderMessage";
-import { addressLine } from "../utils/adminOrder";
+import { addressLine, buildOrderUpdateMessage, whatsappUrlFor } from "../utils/adminOrder";
 import { loadProducts } from "../hooks/useProducts";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { AdminPackingList } from "./AdminPackingList";
@@ -237,8 +237,32 @@ function OrderTrackingForm({ order, busy, onSaveTracking }: TrackingProps & { or
 
 const hasTrackingForm = (order: Order): boolean => order.status === "packed" || order.status === "shipped";
 
+interface MessageLinkProps {
+  order: Order;
+  /** The shop's address, read after mount. Null until then, so no link is drawn on the server render. */
+  origin: string | null;
+}
+
+/** Opens WhatsApp with a status update for the customer. Renders nothing when the number is unusable. */
+function MessageLink({ order, origin }: MessageLinkProps) {
+  if (!origin) return null;
+  const href = whatsappUrlFor(order.customer.phone, buildOrderUpdateMessage(order, `${origin}/order/${order.id}`));
+  if (!href) return null;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="linkr text-ink min-h-11">
+      Message on WhatsApp
+    </a>
+  );
+}
+
 /** One order as a card, for phones: everything stacked, nothing that needs sideways scrolling. */
-function OrderCard({ order, busy, onSaveTracking, ...on }: OrderHandlers & TrackingProps & { order: Order }) {
+function OrderCard({
+  order,
+  busy,
+  origin,
+  onSaveTracking,
+  ...on
+}: OrderHandlers & TrackingProps & MessageLinkProps & { order: Order }) {
   const expires = expiryText(order);
   return (
     <article aria-label={`Order ${order.ref}`} className="border border-b10 r-card p-4 space-y-3">
@@ -268,13 +292,22 @@ function OrderCard({ order, busy, onSaveTracking, ...on }: OrderHandlers & Track
         <OrderLines order={order} />
       </div>
       {hasTrackingForm(order) && <OrderTrackingForm order={order} busy={busy} onSaveTracking={onSaveTracking} />}
-      <OrderActions order={order} busy={busy} large {...on} />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <OrderActions order={order} busy={busy} large {...on} />
+        <MessageLink order={order} origin={origin} />
+      </div>
     </article>
   );
 }
 
 /** The desktop table. Same blocks as the card, in columns. */
-function OrdersTable({ orders, busy, onSaveTracking, ...on }: OrderHandlers & TrackingProps & { orders: Order[] }) {
+function OrdersTable({
+  orders,
+  busy,
+  origin,
+  onSaveTracking,
+  ...on
+}: OrderHandlers & TrackingProps & { orders: Order[] } & Pick<MessageLinkProps, "origin">) {
   return (
     <div className="border border-b10 r-card overflow-x-auto">
       <table className="min-w-full text-left">
@@ -312,7 +345,10 @@ function OrdersTable({ orders, busy, onSaveTracking, ...on }: OrderHandlers & Tr
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-ink">{expiryText(order) ?? "—"}</td>
                 <td className="px-6 py-4">
-                  <OrderActions order={order} busy={busy} {...on} />
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <OrderActions order={order} busy={busy} {...on} />
+                    <MessageLink order={order} origin={origin} />
+                  </div>
                 </td>
               </tr>
               {hasTrackingForm(order) && (
@@ -351,6 +387,11 @@ export function AdminOrders({ onApiError }: AdminSectionProps) {
     );
   // Cards below the md breakpoint (768px), the table from there up.
   const isDesktop = useMediaQuery("(min-width: 48rem)");
+  // The shop's address for the order links in WhatsApp messages. Read after mount, not during render (SSR).
+  const [origin, setOrigin] = useState<string | null>(null);
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   // Keep the latest handler in a ref so the load effect runs once on mount,
   // not on every parent render (AdminPanel recreates handleApiError each render).
@@ -555,11 +596,18 @@ export function AdminOrders({ onApiError }: AdminSectionProps) {
       )}
       {shown.length > 0 &&
         (isDesktop ? (
-          <OrdersTable orders={shown} busy={busy} onSaveTracking={handleSaveTracking} {...handlers} />
+          <OrdersTable orders={shown} busy={busy} origin={origin} onSaveTracking={handleSaveTracking} {...handlers} />
         ) : (
           <div className="space-y-3">
             {shown.map((order) => (
-              <OrderCard key={order.id} order={order} busy={busy} onSaveTracking={handleSaveTracking} {...handlers} />
+              <OrderCard
+                key={order.id}
+                order={order}
+                busy={busy}
+                origin={origin}
+                onSaveTracking={handleSaveTracking}
+                {...handlers}
+              />
             ))}
           </div>
         ))}

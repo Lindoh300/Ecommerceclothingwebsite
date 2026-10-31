@@ -1,4 +1,4 @@
-import type { Order, OrderDelivery } from "../api/types";
+import type { Order, OrderDelivery, OrderStatus } from "../api/types";
 
 // Small helpers the admin order screens share: how an address reads, the WhatsApp number and the message that
 // goes with a new order's link.
@@ -30,6 +30,33 @@ export function buildOrderLinkMessage(order: Order, orderUrl: string): string {
     `Hi ${first}, your 4Nguru order ${order.ref} is ready (total R${order.total.toFixed(2)}).\n` +
     `${pay ? "Pay securely and see your order here" : "See your order here"}: ${orderUrl}`
   );
+}
+
+/** The status sentence after "Hi <first>, ". Record, so a new status is a type error until it has text. */
+const STATUS_UPDATE: Record<OrderStatus, (order: Order) => string> = {
+  pending: (o) => `your 4Nguru order ${o.ref} is waiting for payment (total R${o.total.toFixed(2)}).`,
+  awaiting_payment: (o) => `your 4Nguru order ${o.ref} is waiting for payment (total R${o.total.toFixed(2)}).`,
+  paid: (o) => `we have received your payment for 4Nguru order ${o.ref}. Thank you.`,
+  packed: (o) => `your 4Nguru order ${o.ref} is packed.`,
+  shipped: (o) => `your 4Nguru order ${o.ref} has shipped.`,
+  delivered: (o) => `your 4Nguru order ${o.ref} has been delivered. Thank you for shopping with us.`,
+  cancelled: (o) => `your 4Nguru order ${o.ref} has been cancelled.`,
+  expired: (o) => `your 4Nguru order ${o.ref} expired before it was paid.`,
+  refunded: (o) => `your 4Nguru order ${o.ref} has been refunded.`,
+};
+
+/** The status update the owner sends from WhatsApp. Names, prices and links only: no address or note. */
+export function buildOrderUpdateMessage(order: Order, orderUrl: string): string {
+  const first = order.customer.name.trim().split(/\s+/)[0] || "there";
+  const lines = [`Hi ${first}, ${STATUS_UPDATE[order.status](order)}`];
+  if (order.status === "shipped" && order.tracking) {
+    const { courier, number, url } = order.tracking;
+    if (courier) lines.push(`Courier: ${courier}`);
+    if (number) lines.push(`Tracking number: ${number}`);
+    if (url) lines.push(`Track your parcel: ${url}`);
+  }
+  lines.push(`See your order here: ${orderUrl}`);
+  return lines.join("\n");
 }
 
 /** wa.me link to a customer's number with a message, or null when the number is no good. */

@@ -10,6 +10,8 @@ import {
   EXPIRING_WITHIN_HOURS,
   LOW_STOCK_AT,
   lowStockVariants,
+  SUMMARY_DAYS,
+  salesSummary,
   type SalesTotal,
 } from "../utils/adminDashboard";
 import { sectionHref, type AdminSectionProps } from "./adminSections";
@@ -98,6 +100,7 @@ export function AdminDashboard({ onApiError }: AdminSectionProps) {
 
   // Recomputed when a list loads; "now" is the moment of that load, in the viewer's own time zone.
   const figures = useMemo(() => dashboardOrders(orders.data, new Date()), [orders.data]);
+  const summary = useMemo(() => salesSummary(orders.data, new Date()), [orders.data]);
   const low = useMemo(() => lowStockVariants(products.data), [products.data]);
   // While a list reloads, the figures from the last load stay on screen.
   const ordersReady = !orders.error && !(orders.loading && orders.data.length === 0);
@@ -183,6 +186,35 @@ export function AdminDashboard({ onApiError }: AdminSectionProps) {
             </Block>
           </>
         )}
+
+        <Block
+          title={`Last ${SUMMARY_DAYS} days`}
+          figure={ordersReady ? rand(summary.total) : "–"}
+          href={sectionHref("orders")}
+          linkLabel="Open orders"
+        >
+          {!ordersReady ? (
+            <ListStatus list={orders} what="orders" />
+          ) : summary.count === 0 ? (
+            <p className="text-b60 text-sm">No paid orders in the last {SUMMARY_DAYS} days.</p>
+          ) : (
+            <>
+              <p className="text-b60 text-sm">
+                {`${summary.count} paid ${summary.count === 1 ? "order" : "orders"}, ${summary.units} ${
+                  summary.units === 1 ? "item" : "items"
+                }, average ${rand(summary.average)}, delivery included.`}
+              </p>
+              <ul className="divide-y divide-b10 mt-3">
+                {summary.topProducts.map((p, i) => (
+                  <li key={i} className="py-2 flex items-baseline justify-between gap-3 text-sm">
+                    <span className="min-w-0 text-ink break-words">{p.name}</span>
+                    <span className="shrink-0 text-ink">{p.units} sold</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Block>
 
         <Block
           title={`Low stock (${LOW_STOCK_AT} or fewer)`}

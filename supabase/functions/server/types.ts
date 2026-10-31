@@ -537,6 +537,8 @@ export interface Deps {
   orders: OrderStore;
   events: EventStore;
   community: CommunityStore;
+  restock: RestockStore;
+  listSends: ListSendStore;
   /** null when no payment key is configured: online payment is then off. */
   payments: PaymentProvider | null;
   /** null when no email key is configured: no order emails are sent. */
@@ -616,4 +618,89 @@ export interface CommunityStore {
   listSubscribers(): Promise<Subscriber[]>;
   /** Opts out; a second call keeps the first time. null = no such subscriber. */
   unsubscribe(id: string): Promise<Subscriber | null>;
+}
+
+// --- Restock alerts (20261031150000_restock_alerts.sql) --------------------------------------------------------
+
+/** A customer waiting for a size and colour to come back, as the owner sees it. Exactly one of phone and email is set.
+ *  The product and variant details are current, so `stock` shows what has come back. */
+export interface RestockRequest {
+  id: string;
+  productId: string;
+  productName: string;
+  productSlug: string;
+  variantId: string;
+  size: string;
+  color: string;
+  stock: number;
+  phone: string | null;
+  email: string | null;
+  createdAt: string;
+}
+
+/** What a customer sends: the variant and exactly one contact. The product comes from the URL. */
+export interface RestockInput {
+  productId: string;
+  variantId: string;
+  phone?: string;
+  email?: string;
+}
+
+export type RestockResult = { ok: true } | { ok: false; reason: 'rate_limited' | 'not_found' | 'in_stock' };
+
+export interface RestockStore {
+  /** Records the request. `{ok:true}` for a new request and for a repeat from the same contact for the same variant
+   *  (one row, same answer). 'not_found' = no such active product, or the variant is another product's. 'in_stock' =
+   *  the variant has stock. `ip` is the client address for the shared limit of 5 an hour (with sign-ups and
+   *  unsubscribes); none, no limit. Requests older than 180 days are deleted, up to 200 per call. */
+  request(input: RestockInput, ip?: string): Promise<RestockResult>;
+  /** Oldest first. */
+  list(): Promise<RestockRequest[]>;
+  /** false = no such request. */
+  remove(id: string): Promise<boolean>;
+}
+
+// --- Sending to the mailing list (20261031160000_list_sends.sql) ------------------------------------------------
+
+/** One email to the list and how far it has got. `total` is the snapshot taken when it was created; the five states add
+ *  up to it. A recipient is 'sending' while a batch is in flight, and stays so if the process dies (never re-sent). */
+export interface ListSendSummary {
+  id: string;
+  subject: string;
+  body: string;
+  total: number;
+  pending: number;
+  sending: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  createdAt: string;
+  /** null until no recipient is pending or sending. */
+  finishedAt: string | null;
+}
+
+export interface ListSendInput {
+  subject: string;
+  body: string;
+}
+
+/** A claimed recipient: the address is read at claim time, so an opt-out is respected up to that moment. */
+export interface ListSendRecipient {
+  subscriberId: string;
+  email: string;
+}
+
+export interface ListSendStore {
+  /** Creates the send under a client id and snapshots every subscriber with an email and no opt-out as pending
+   *  (finished at once if there are none). A repeat id changes nothing: `created` false and the existing summary. */
+  create(id: string, input: ListSendInput): Promise<{ created: boolean; send: ListSendSummary }>;
+  /** Takes up to `limit` (default 100) pending recipients, oldest subscriber id first, marking them 'sending' with one
+   *  more attempt. Anyone who has since opted out or has no email becomes 'skipped' and is not returned. Rows left
+   *  'sending' are never taken again. null = no such send. */
+  claimBatch(id: string, limit?: number): Promise<{ recipients: ListSendRecipient[]; summary: ListSendSummary } | null>;
+  /** Settles the given recipients that are still 'sending': `ok` makes them 'sent'; otherwise back to pending, or
+   *  'failed' once they have had 3 attempts. null = no such send. */
+  finishBatch(id: string, subscriberIds: string[], ok: boolean): Promise<ListSendSummary | null>;
+  /** Newest first, up to 50. */
+  listAdmin(): Promise<ListSendSummary[]>;
 }

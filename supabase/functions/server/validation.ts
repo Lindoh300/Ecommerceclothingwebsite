@@ -6,6 +6,7 @@ import type {
   EventInput,
   EventStatus,
   GalleryInput,
+  ListSendInput,
   OrderItemInput,
   OrderStatus,
   PaymentMethod,
@@ -682,6 +683,23 @@ export function validateUnsubscribeInput(body: unknown): Result<{ phone?: string
   return contact;
 }
 
+/**
+ * The body of POST /products/:id/restock-alert: the variant (a UUID) and exactly one contact, a phone or an email,
+ * checked like a sign-up's. Nothing else in the body is read.
+ */
+export function validateRestockInput(body: unknown): Result<{ variantId: string; phone?: string; email?: string }> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  if (typeof body.variantId !== 'string' || !UUID_RE.test(body.variantId)) {
+    return { ok: false, error: 'variantId must be a UUID' };
+  }
+  const contact = readContact(body);
+  if (!contact.ok) return contact;
+  const { phone, email } = contact.value;
+  if (!phone && !email) return { ok: false, error: 'Give a phone number or an email address' };
+  if (phone && email) return { ok: false, error: 'Give one contact' };
+  return { ok: true, value: { variantId: body.variantId.toLowerCase(), ...contact.value } };
+}
+
 /** The body of PUT /admin/gallery/:id. Every key is optional (a new item needs image). */
 export function validateGalleryInput(body: unknown): Result<GalleryInput> {
   if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
@@ -719,4 +737,31 @@ export function validateGalleryInput(body: unknown): Result<GalleryInput> {
     out.active = body.active;
   }
   return { ok: true, value: out };
+}
+
+// --- Sending to the mailing list ------------------------------------------------------------------------------
+
+/** The body of PUT /admin/list-sends/:id: a subject of 1 to 150 characters on one line and a body of 1 to 10000,
+ *  both trimmed. Nothing else in the body is read. */
+export function validateListSendInput(body: unknown): Result<ListSendInput> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  if (typeof body.subject !== 'string') return { ok: false, error: 'subject must be text' };
+  const subject = body.subject.trim();
+  if (subject === '' || subject.length > 150) return { ok: false, error: 'subject must be 1 to 150 characters' };
+  if (/[\r\n\u2028\u2029]/.test(subject)) return { ok: false, error: 'subject must be one line' };
+  if (typeof body.body !== 'string') return { ok: false, error: 'body must be text' };
+  const text = body.body.trim();
+  if (text === '' || text.length > 10000) return { ok: false, error: 'body must be 1 to 10000 characters' };
+  return { ok: true, value: { subject, body: text } };
+}
+
+/** The body of POST /admin/list-sends/test: the same subject and body, plus the address to send the test to. */
+export function validateListSendTest(body: unknown): Result<ListSendInput & { to: string }> {
+  const v = validateListSendInput(body);
+  if (!v.ok) return v;
+  const to = (body as Record<string, unknown>).to;
+  if (typeof to !== 'string') return { ok: false, error: 'to must be an email address' };
+  const addr = to.trim();
+  if (addr.length > 254 || !EMAIL_RE.test(addr)) return { ok: false, error: 'to must be an email address' };
+  return { ok: true, value: { ...v.value, to: addr } };
 }

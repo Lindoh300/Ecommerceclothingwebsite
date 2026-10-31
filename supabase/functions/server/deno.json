@@ -5,7 +5,7 @@
   },
   "tasks": {
     "test": "deno test --allow-env",
-    "test:sql": "deno test -A ../../tests/catalogue.test.ts ../../tests/events.test.ts ../../tests/community.test.ts",
+    "test:sql": "deno test -A ../../tests/catalogue.test.ts ../../tests/events.test.ts ../../tests/community.test.ts ../../tests/restock.test.ts ../../tests/list_send.test.ts",
     "dev": "deno run --allow-net dev.ts"
   }
 }

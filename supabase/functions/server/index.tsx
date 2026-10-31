@@ -16,7 +16,13 @@ import type {
   DeliveryOptionStore,
   Deps,
   EventStore,
+  ListSendRecipient,
+  ListSendStore,
+  ListSendSummary,
   PublicGalleryItem,
+  RestockRequest,
+  RestockResult,
+  RestockStore,
   Subscriber,
   UpsertGalleryResult,
   ExtendResult,
@@ -68,6 +74,8 @@ const client = () => createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABA
 //   20261031120000_events.sql            events, ticket types, tickets (rsvp_tickets, check_in_ticket and friends)
 //   20261031130000_community.sql         gallery items and the mailing list (subscribe and friends)
 //   20261031140000_unsubscribe.sql       unsubscribe_contact (self-service opt-out, shares the sign-up limit)
+//   20261031150000_restock_alerts.sql    restock_requests, request_restock_alert and friends; unsubscribe_contact also removes them
+//   20261031160000_list_sends.sql        list_sends and list_send_recipients, create_list_send and friends (sending to the list)
 // The kv table is not used. Orders and stock changes lock the variant rows, so
 // stock cannot be oversold. Nothing is seeded here: the migration copies the
 // existing products over.
@@ -238,6 +246,44 @@ const community: CommunityStore = {
   },
 };
 
+// Restock alerts. `request` takes the address limit (shared with the sign-up), the purge and the insert in one transaction.
+const restock: RestockStore = {
+  request: (input, ip) =>
+    rpc<RestockResult>('request_restock_alert', {
+      p_product_id: input.productId,
+      p_variant_id: input.variantId,
+      p_phone: input.phone ?? null,
+      p_email: input.email ?? null,
+      p_ip: ip ?? null,
+    }),
+  list: () => rpc<RestockRequest[]>('list_restock_requests_admin', {}),
+  remove: (id) => rpc<boolean>('delete_restock_request', { p_id: id }),
+};
+
+// Sending to the mailing list. Each call is one transaction; claim and finish are the only writes while a send runs.
+const listSends: ListSendStore = {
+  create: (id, input) =>
+    rpc<{ created: boolean; send: ListSendSummary }>('create_list_send', {
+      p_id: id,
+      p_subject: input.subject,
+      p_body: input.body,
+    }),
+  async claimBatch(id, limit) {
+    return (await rpc<{ recipients: ListSendRecipient[]; summary: ListSendSummary } | null>('claim_list_send_batch', {
+      p_id: id,
+      p_limit: limit ?? 100,
+    })) ?? null;
+  },
+  async finishBatch(id, subscriberIds, ok) {
+    return (await rpc<ListSendSummary | null>('finish_list_send_batch', {
+      p_id: id,
+      p_subscriber_ids: subscriberIds,
+      p_ok: ok,
+    })) ?? null;
+  },
+  listAdmin: () => rpc<ListSendSummary[]>('list_list_sends_admin', {}),
+};
+
 const deps: Deps = {
   products,
   deliveryOptions,
@@ -245,6 +291,8 @@ const deps: Deps = {
   orders,
   events,
   community,
+  restock,
+  listSends,
   // null (online payment off) when PAYSTACK_SECRET_KEY is unset or blank. The only read of the key.
   payments: loadPaymentProvider(Deno.env.get('PAYSTACK_SECRET_KEY')),
   // null (no order emails) unless both RESEND_API_KEY and EMAIL_FROM are set. The only read of the key.

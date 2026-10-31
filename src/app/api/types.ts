@@ -367,3 +367,35 @@ export interface Subscriber {
   unsubscribedAt: string | null
   createdAt: string
 }
+
+/** A customer waiting to hear that a sold-out variant is back, for the owner. Oldest first from the server. */
+export interface RestockRequest {
+  id: string
+  productId: string
+  productName: string
+  productSlug: string
+  variantId: string
+  size: string
+  color: string
+  /** The variant's stock now; above 0 means it is back. */
+  stock: number
+  phone: string | null
+  email: string | null
+  createdAt: string
+}
+
+/** One email sent to the mailing list, as the owner sees it. `pending` is what is still to send. */
+export interface ListSendSummary {
+  id: string
+  subject: string
+  body: string
+  total: number
+  pending: number
+  sending: number
+  sent: number
+  failed: number
+  skipped: number
+  createdAt: string
+  /** null until no recipient is pending or sending. */
+  finishedAt: string | null
+}

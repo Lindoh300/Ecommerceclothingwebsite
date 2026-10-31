@@ -2,7 +2,9 @@
 // `Mailer` and builds the messages with the pure functions below. Plain text only.
 //
 // Contract used here (Resend): POST https://api.resend.com/emails
-//   Authorization: Bearer <key>, JSON {from, to: [address], subject, text}; any non-2xx is a failure.
+//   Authorization: Bearer <key>, JSON {from, to: [address], subject, text, headers?}; any non-2xx is a failure.
+// Batch (the mailing list): POST https://api.resend.com/emails/batch, the same headers, a JSON array of at most 100
+//   of those objects; any non-2xx is a failure.
 // The key is only ever held inside the mailer object. It is never put in an error message.
 import type { Order } from './types.ts';
 
@@ -10,15 +12,25 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  /** Extra email headers, such as List-Unsubscribe. Sent only when set. */
+  headers?: Record<string, string>;
 }
 
 export interface Mailer {
   /** Throws when the email could not be sent; the message never contains the key. */
   send(msg: EmailMessage): Promise<void>;
+  /** Sends 1 to MAX_BATCH emails in one request. Throws (without calling the provider) on an empty array or more than
+   *  MAX_BATCH; throws when the request failed. The message never contains the key. */
+  sendBatch(msgs: EmailMessage[]): Promise<void>;
 }
 
+/** The most emails in one sendBatch call (the provider's limit). */
+export const MAX_BATCH = 100;
+
 const RESEND_URL = 'https://api.resend.com/emails';
+const RESEND_BATCH_URL = 'https://api.resend.com/emails/batch';
 const TIMEOUT_MS = 10_000;
+const BATCH_TIMEOUT_MS = 15_000;
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -28,20 +40,33 @@ export function createResendMailer(
   fetchImpl: FetchLike = (input, init) => fetch(input, init),
 ): Mailer {
   const redact = (text: string) => (apiKey === '' ? text : text.split(apiKey).join('[redacted]'));
+  const payload = (msg: EmailMessage) => ({
+    from,
+    to: [msg.to],
+    subject: msg.subject,
+    text: msg.text,
+    ...(msg.headers && Object.keys(msg.headers).length > 0 ? { headers: msg.headers } : {}),
+  });
+  const post = async (url: string, body: unknown, timeoutMs: number): Promise<void> => {
+    let res: Response;
+    try {
+      res = await fetchImpl(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      throw new Error(redact(`Email request failed: ${e instanceof Error ? e.message : String(e)}`));
+    }
+    if (!res.ok) throw new Error(`Email provider error (HTTP ${res.status})`);
+  };
   return {
-    async send(msg) {
-      let res: Response;
-      try {
-        res = await fetchImpl(RESEND_URL, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from, to: [msg.to], subject: msg.subject, text: msg.text }),
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        });
-      } catch (e) {
-        throw new Error(redact(`Email request failed: ${e instanceof Error ? e.message : String(e)}`));
-      }
-      if (!res.ok) throw new Error(`Email provider error (HTTP ${res.status})`);
+    send: (msg) => post(RESEND_URL, payload(msg), TIMEOUT_MS),
+    sendBatch(msgs) {
+      if (msgs.length === 0) return Promise.reject(new Error('Email batch is empty'));
+      if (msgs.length > MAX_BATCH) return Promise.reject(new Error(`Email batch is over ${MAX_BATCH}`));
+      return post(RESEND_BATCH_URL, msgs.map(payload), BATCH_TIMEOUT_MS);
     },
   };
 }
@@ -56,18 +81,43 @@ export function loadMailer(apiKey: string | undefined, from: string | undefined)
 
 /** A mailer for tests and the local dev server. Sends nothing; remembers every message. */
 export interface FakeMailer extends Mailer {
+  /** Every email sent, from send and sendBatch alike, in order. */
   readonly sent: EmailMessage[];
+  /** How many of the next send or sendBatch calls fail (and send nothing). Counts down; set it from a test. */
+  failNext: number;
+  /** The size of each sendBatch call that went through the checks, in order. */
+  readonly batchSizes: number[];
 }
 
 export function createFakeMailer(): FakeMailer {
   const sent: EmailMessage[] = [];
-  return {
+  const batchSizes: number[] = [];
+  const copy = (m: EmailMessage): EmailMessage => ({ ...m, ...(m.headers ? { headers: { ...m.headers } } : {}) });
+  const mailer: FakeMailer = {
     sent,
+    batchSizes,
+    failNext: 0,
     send(msg) {
-      sent.push({ ...msg });
+      if (mailer.failNext > 0) {
+        mailer.failNext--;
+        return Promise.reject(new Error('Email provider error (HTTP 500)'));
+      }
+      sent.push(copy(msg));
+      return Promise.resolve();
+    },
+    sendBatch(msgs) {
+      if (msgs.length === 0) return Promise.reject(new Error('Email batch is empty'));
+      if (msgs.length > MAX_BATCH) return Promise.reject(new Error(`Email batch is over ${MAX_BATCH}`));
+      batchSizes.push(msgs.length);
+      if (mailer.failNext > 0) {
+        mailer.failNext--;
+        return Promise.reject(new Error('Email provider error (HTTP 500)'));
+      }
+      for (const m of msgs) sent.push(copy(m));
       return Promise.resolve();
     },
   };
+  return mailer;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,4 +161,23 @@ export function orderShippedEmail(o: Order, siteUrl: string | null): EmailMessag
   if (t?.url) extra.push(`Track your parcel: ${t.url}`);
   if (extra.length) extra.push('');
   return build(o, `${SHOP}: your order ${o.ref} has shipped`, [`Your order has shipped.`], siteUrl, extra);
+}
+
+/**
+ * An email for the mailing list: the body, then the opt-out lines. Every list email goes through here so none can go
+ * without them. `siteUrl` is the live site address without a trailing slash; blank throws, so nothing is ever sent
+ * without an unsubscribe link. The address is NOT put in the link: /unsubscribe asks for it.
+ */
+export function listEmail(to: string, subject: string, body: string, siteUrl: string): EmailMessage {
+  const site = siteUrl.trim().replace(/\/+$/, '');
+  if (!site) throw new Error('A list email needs the site address for its unsubscribe link');
+  const link = `${site}/unsubscribe`;
+  const text = [
+    body,
+    '',
+    '--',
+    `You are getting this because you joined the ${SHOP} list.`,
+    `To stop, go to ${link}`,
+  ].join('\n');
+  return { to, subject, text, headers: { 'List-Unsubscribe': `<${link}>` } };
 }

@@ -7,6 +7,10 @@ import type { Order, OrderStatus, Product } from "../api/types";
 export const EXPIRING_WITHIN_HOURS = 12;
 /** Variants at this many or fewer are "low". */
 export const LOW_STOCK_AT = 3;
+/** The sales summary covers this many calendar days, today included. */
+export const SUMMARY_DAYS = 30;
+/** The sales summary lists this many best-selling products. */
+export const TOP_PRODUCTS = 5;
 
 /** Orders that count as a sale: the money has been seen. */
 const SALE_STATUSES: readonly OrderStatus[] = ["paid", "packed", "shipped", "delivered"];
@@ -27,6 +31,25 @@ export interface SalesTotal {
   count: number;
   /** Sum of order totals, delivery fees included. */
   total: number;
+}
+
+export interface ProductSales {
+  name: string;
+  units: number;
+  revenue: number;
+}
+
+export interface SalesSummary {
+  /** Orders that count as a sale in the window. */
+  count: number;
+  /** Sum of order totals, delivery included. */
+  total: number;
+  /** total / count, 0 when count is 0. */
+  average: number;
+  /** Items sold. */
+  units: number;
+  /** By units sold, then revenue, then name. At most TOP_PRODUCTS. */
+  topProducts: ProductSales[];
 }
 
 export interface DashboardOrders {
@@ -92,6 +115,44 @@ export function dashboardOrders(orders: Order[], now: Date): DashboardOrders {
     }
   }
   return { toPack, expiringSoon, flagged, today, week };
+}
+
+/**
+ * Sales over the last SUMMARY_DAYS calendar days, today included. Only paid-or-later orders count.
+ * A line's revenue is its unit price times its quantity; lines of one product group together, whatever the size.
+ */
+export function salesSummary(orders: Order[], now: Date): SalesSummary {
+  const since = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (SUMMARY_DAYS - 1)).getTime();
+  let count = 0;
+  let total = 0;
+  let units = 0;
+  const byProduct = new Map<string, ProductSales>();
+
+  for (const o of orders) {
+    if (!SALE_STATUSES.includes(o.status)) continue;
+    const when = saleTime(o);
+    if (Number.isNaN(when) || when < since) continue;
+    count += 1;
+    total += o.total;
+    for (const l of o.lines) {
+      const revenue = l.price * l.quantity;
+      units += l.quantity;
+      const key = l.productId || l.name;
+      const row = byProduct.get(key);
+      if (row) {
+        row.units += l.quantity;
+        row.revenue += revenue;
+      } else {
+        byProduct.set(key, { name: l.name, units: l.quantity, revenue });
+      }
+    }
+  }
+
+  const topProducts = [...byProduct.values()]
+    .sort((a, b) => b.units - a.units || b.revenue - a.revenue || a.name.localeCompare(b.name))
+    .slice(0, TOP_PRODUCTS);
+
+  return { count, total, average: count === 0 ? 0 : total / count, units, topProducts };
 }
 
 /** Variants at LOW_STOCK_AT or fewer on active products, lowest first (then by name, size, colour). */
