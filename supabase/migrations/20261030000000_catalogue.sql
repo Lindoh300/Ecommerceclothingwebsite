@@ -20,6 +20,10 @@
 --   3. the products row                    (only update_product_v2 and delete_product)
 -- Variant rows are always locked with a single "order by id for update" query,
 -- and always BEFORE anything is read that a decision depends on.
+-- Later migrations extend the order: the order row, then variants by id, then
+-- the products row, then the per-IP advisory lock taken last by place_order_v3;
+-- expire_one_order and record_payment follow the same order; expire_due_orders
+-- commits after each order so it never holds variant locks of two orders at once.
 
 -- ---------------------------------------------------------------------------
 -- Tables. Only the edge function (service role) can touch them.

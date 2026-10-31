@@ -208,21 +208,12 @@ export function Cart() {
           <div className="lg:col-span-1">
             <div className="border border-b10 p-6 sticky top-24">
               <p className="micro text-b60 mb-4">Order summary</p>
-              <div className="space-y-2 mb-4">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span className="font-mono">{quote ? `R${total.toFixed(2)}` : "-"}</span>
-                </div>
-                <div className="flex justify-between text-sm text-b60">
-                  <span>Shipping</span>
-                  <span>Calculated on WhatsApp</span>
-                </div>
-              </div>
               <div className="border-t border-b10 pt-4 mb-6">
                 <div className="flex justify-between">
-                  <span>Total</span>
+                  <span>Items total</span>
                   <span className="font-mono">{quote ? `R${total.toFixed(2)}` : "-"}</span>
                 </div>
+                <p className="text-sm text-b60 mt-2">Delivery is added at checkout.</p>
                 {quoting && <p className="micro text-b60 mt-2">Updating…</p>}
                 {quoteError && (
                   <div className="mt-2 flex flex-wrap items-center gap-4">
@@ -239,6 +230,7 @@ export function Cart() {
                 onStockShort={() => { reload().catch(() => {}); }}
                 onCartCleared={handleCartCleared}
                 onOrderChange={setOrderPlaced}
+                itemsTotal={quote ? quote.total : undefined}
               />
             </div>
           </div>

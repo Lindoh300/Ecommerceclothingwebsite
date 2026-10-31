@@ -13,8 +13,19 @@ import {
 } from './validation.ts';
 
 const PREFIX = '/make-server-fbb8f0e1';
+const ONLINE_UNAVAILABLE = 'Online payment is not available';
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+/**
+ * The caller's address. Only Cloudflare's cf-connecting-ip is trusted: Cloudflare sets it itself and refuses a
+ * request that tries to supply its own. x-forwarded-for can be written by the caller, so it is never read.
+ * Returns the trimmed value if it looks like an IPv4 or IPv6 address, else null (and null never blocks).
+ */
+export function clientIp(headers: Headers): string | null {
+  const v = headers.get('cf-connecting-ip')?.trim();
+  return v && v.length <= 45 && /^[0-9a-fA-F:.]+$/.test(v) ? v : null;
+}
 
 export const deriveImage = (images: string[] | undefined): string => images?.find((u) => u !== '') ?? '';
 
@@ -248,13 +259,31 @@ export function createApp(deps: Deps): Hono {
     return c.json(quote);
   });
 
+  // Public: the shop shows these before checkout. Inactive options are not listed.
+  app.get(`${PREFIX}/delivery-options`, async (c) => c.json(await deps.deliveryOptions.list()));
+
   app.post(`${PREFIX}/orders`, async (c) => {
     const parsed = await readJson(c);
     if (!parsed.ok) return c.json({ error: 'Malformed JSON' }, 400);
     const v = validateOrder(parsed.body);
-    if (!v.ok) return c.json({ error: v.error }, 400);
-    const r = await deps.orders.place(v.value.id, v.value.items, v.value.customer);
+    if (!v.ok) return c.json(v.code ? { error: v.error, code: v.code } : { error: v.error }, 400);
+    const { delivery, paymentMethod } = v.value;
+    // Before any stock is taken: an online order that could never be paid must not hold stock.
+    if (paymentMethod === 'online' && !deps.payments) return c.json({ error: ONLINE_UNAVAILABLE }, 503);
+    const ip = clientIp(c.req.raw.headers);
+    const r = await deps.orders.place(v.value.id, v.value.items, v.value.customer, {
+      delivery,
+      paymentMethod,
+      ...(ip ? { ip } : {}),
+    });
     if (!r.ok) {
+      if (r.reason === 'rate_limited') {
+        c.header('Retry-After', '3600');
+        return c.json({
+          error: 'Too many orders from this connection. Please try again in an hour or message us on WhatsApp.',
+        }, 429);
+      }
+      if (r.reason === 'unknown_delivery') return c.json({ error: 'Unknown delivery option' }, 400);
       if (r.reason === 'missing') return c.json({ error: 'Unknown products', missing: r.missing }, 400);
       return c.json({ error: 'Insufficient stock', short: r.short }, 409);
     }
@@ -275,6 +304,82 @@ export function createApp(deps: Deps): Hono {
     const order = await deps.orders.cancel(id);
     if (!order) return c.json({ error: 'Order not found' }, 404);
     return c.json(order);
+  });
+
+  // Only a pending order (the customer pays on WhatsApp) can be marked paid by hand, after the owner has seen the money.
+  // Stock is not touched: the order already holds it. An awaiting_payment order waits for its payment provider instead.
+  app.post(`${PREFIX}/orders/:id/mark-paid`, async (c) => {
+    const denied = await guard(c);
+    if (denied) return denied;
+    const id = c.req.param('id');
+    if (!UUID_RE.test(id)) return c.json({ error: 'Order not found' }, 404);
+    const r = await deps.orders.setStatus(id, 'paid', 'pending');
+    if (!r.ok) {
+      if (r.reason === 'not_found') return c.json({ error: 'Order not found' }, 404);
+      return c.json({ error: 'Only pending orders can be marked paid', status: r.order.status }, 409);
+    }
+    return c.json(r.order);
+  });
+
+  // Public: the order UUID is the capability. The body is not read: the amount, currency, reference and
+  // email all come from the stored order, never from the request.
+  app.post(`${PREFIX}/orders/:id/pay`, async (c) => {
+    const payments = deps.payments;
+    if (!payments) return c.json({ error: ONLINE_UNAVAILABLE }, 503);
+    const id = c.req.param('id');
+    if (!UUID_RE.test(id)) return c.json({ error: 'Order not found' }, 404);
+    const info = await deps.orders.paymentInfo(id);
+    if (!info) return c.json({ error: 'Order not found' }, 404);
+    if (info.status !== 'awaiting_payment') {
+      return c.json({ error: 'This order can no longer be paid online', status: info.status }, 409);
+    }
+    if (info.paymentUrl) return c.json({ redirectUrl: info.paymentUrl });
+    if (!info.email) return c.json({ error: 'This order has no email address to pay with' }, 400);
+    let redirectUrl: string;
+    try {
+      // The order id is the reference: one payment per order, and the webhook finds the order by it.
+      ({ redirectUrl } = await payments.start({
+        reference: info.id,
+        amountCents: Math.round(info.total * 100),
+        currency: 'ZAR',
+        email: info.email,
+        orderRef: info.ref,
+      }));
+    } catch (e) {
+      console.error('payment start failed for order', info.ref, e instanceof Error ? e.message : 'unknown error');
+      return c.json({ error: 'Could not start payment' }, 502);
+    }
+    if (!(await deps.orders.attachPayment(info.id, info.id, redirectUrl))) {
+      // Lost a race: another call stored its URL first, or the order left awaiting_payment meanwhile.
+      const now = await deps.orders.paymentInfo(info.id);
+      if (now?.status === 'awaiting_payment' && now.paymentUrl) return c.json({ redirectUrl: now.paymentUrl });
+      return c.json({ error: 'This order can no longer be paid online', status: now?.status ?? info.status }, 409);
+    }
+    return c.json({ redirectUrl });
+  });
+
+  // Called by the payment provider. The signature proves who sent it, but the body's figures are never
+  // used: we ask the provider (verify) and record what it says.
+  app.post(`${PREFIX}/payments/webhook`, async (c) => {
+    const payments = deps.payments;
+    if (!payments) return c.json({ error: ONLINE_UNAVAILABLE }, 503);
+    const rawBody = await c.req.text();
+    const event = await payments.parseWebhook(rawBody, c.req.raw.headers);
+    if (!event) return c.json({ error: 'Invalid signature' }, 401);
+    if (event.type !== 'payment_success') return c.json({ received: true });
+    let verified;
+    try {
+      verified = await payments.verify(event.reference);
+    } catch (e) {
+      // 502 makes the provider try again later.
+      console.error('payment verify failed for', event.reference, e instanceof Error ? e.message : 'unknown error');
+      return c.json({ error: 'Could not verify payment' }, 502);
+    }
+    if (verified.status !== 'success') return c.json({ received: true });
+    const r = await deps.orders.recordPayment(verified.reference, verified.amountCents, verified.currency);
+    if (!r.ok) console.warn(`payment ${r.reason} for reference ${verified.reference}`);
+    else if (r.outcome === 'refund_due') console.warn(`payment for reference ${verified.reference} needs a refund`);
+    return c.json({ received: true });
   });
 
   return app;

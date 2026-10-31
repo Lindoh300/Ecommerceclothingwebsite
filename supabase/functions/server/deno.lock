@@ -1,9 +1,10 @@
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@supabase/supabase-js@2.49.8": "2.49.8",
+    "npm:@electric-sql/pglite@0.5.13": "0.5.13",
     "npm:@supabase/auth-js@2.69.1": "2.69.1",
     "npm:@supabase/functions-js@2.4.4": "2.4.4",
     "npm:@supabase/node-fetch@2.6.15": "2.6.15",
@@ -35,6 +36,9 @@
     }
   },
   "npm": {
+    "@electric-sql/pglite@0.5.13": {
+      "integrity": "sha512-4rZuxK1k07w6sSpJzjMri0B9+HuXuC7V9pxVB51pR0T9KPqXg6TD0mdaEwBA9rkcL4jdht4tGDf/wYzAiGhT7g=="
+    },
     "@supabase/auth-js@2.69.1": {
       "integrity": "sha512-FILtt5WjCNzmReeRLq5wRs3iShwmnWgBvxHfqapC/VoljJl+W8hDAyFmf1NVw3zH+ZjZ05AKxiKxVeb0HNWRMQ==",
       "dependencies": [

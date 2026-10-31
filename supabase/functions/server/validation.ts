@@ -1,7 +1,10 @@
 import type {
   CartQuoteRequest,
   Customer,
+  DeliveryAddress,
+  DeliveryInput,
   OrderItemInput,
+  PaymentMethod,
   ProductInput,
   VariantInput,
   VariantStockInput,
@@ -11,7 +14,8 @@ import type {
 export const CATEGORY_ID_RE = /^[a-z0-9-]{1,40}$/;
 const CATEGORY_ID_ERROR = 'category must be a slug: lowercase letters, digits and hyphens, up to 40 characters';
 
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+/** `code` is a stable machine-readable name for errors the shop shows to the customer as they are. */
+export type Result<T> = { ok: true; value: T } | { ok: false; error: string; code?: string };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -221,9 +225,62 @@ export function validateQuote(body: unknown): Result<CartQuoteRequest> {
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const text120 = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  return s.length > 120 ? null : s;
+};
+
+/** The delivery choice. A fee, price or total in it is ignored: the server reads the fee from the table. */
+function validateDelivery(raw: unknown): Result<DeliveryInput> {
+  if (!isRecord(raw)) return { ok: false, error: 'delivery must be an object' };
+  const m = raw.method;
+  if (m !== 'door' && m !== 'locker' && m !== 'collect') {
+    return { ok: false, error: 'delivery method must be door, locker or collect' };
+  }
+  if (m === 'collect') return { ok: true, value: { method: m } };
+  if (m === 'locker') {
+    const locker = text120(raw.locker);
+    if (!locker) return { ok: false, error: 'locker must be 1 to 120 characters' };
+    return { ok: true, value: { method: m, locker } };
+  }
+  if (!isRecord(raw.address)) return { ok: false, error: 'door delivery needs an address' };
+  const a = raw.address;
+  const required = (k: string, label: string): Result<string> => {
+    const v = text120(a[k]);
+    return v ? { ok: true, value: v } : { ok: false, error: `address ${label} must be 1 to 120 characters` };
+  };
+  const line1 = required('line1', 'line 1');
+  if (!line1.ok) return line1;
+  const suburb = required('suburb', 'suburb');
+  if (!suburb.ok) return suburb;
+  const city = required('city', 'city');
+  if (!city.ok) return city;
+  const postalCode = typeof a.postalCode === 'string' ? a.postalCode.trim() : '';
+  if (!/^\d{4}$/.test(postalCode)) return { ok: false, error: 'address postal code must be 4 digits' };
+  const address: DeliveryAddress = { line1: line1.value, suburb: suburb.value, city: city.value, postalCode };
+  if (a.line2 !== undefined && a.line2 !== null && a.line2 !== '') {
+    const line2 = text120(a.line2);
+    if (line2 === null) return { ok: false, error: 'address line 2 must be up to 120 characters' };
+    if (line2 !== '') address.line2 = line2;
+  }
+  return { ok: true, value: { method: m, address } };
+}
+
+/** Most units one order may hold, across all lines. */
+export const MAX_ORDER_UNITS = 10;
+
 export function validateOrder(
   body: unknown,
-): Result<{ id: string; items: OrderItemInput[]; customer: Customer }> {
+): Result<{
+  id: string;
+  items: OrderItemInput[];
+  customer: Customer;
+  delivery?: DeliveryInput;
+  paymentMethod: PaymentMethod;
+}> {
   if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
   if (typeof body.id !== 'string' || !UUID_RE.test(body.id)) {
     return { ok: false, error: 'id must be a UUID' };
@@ -256,6 +313,10 @@ export function validateOrder(
     }
     items.push(item);
   }
+  // Per-line limits above stay; this caps the whole order.
+  if (items.reduce((n, it) => n + it.quantity, 0) > MAX_ORDER_UNITS) {
+    return { ok: false, error: 'An order can hold up to 10 items in total', code: 'too_many_units' };
+  }
 
   if (!isRecord(body.customer)) return { ok: false, error: 'customer must be an object' };
   const c = body.customer;
@@ -277,5 +338,29 @@ export function validateOrder(
     if (note.length > 500) return { ok: false, error: 'customer note must be up to 500 characters' };
     if (note !== '') customer.note = note;
   }
-  return { ok: true, value: { id: body.id, items, customer } };
+  if (c.email !== undefined && c.email !== null && c.email !== '') {
+    if (typeof c.email !== 'string') return { ok: false, error: 'customer email must be a string' };
+    const email = c.email.trim();
+    if (email.length > 254 || !EMAIL_RE.test(email)) return { ok: false, error: 'customer email is not valid' };
+    customer.email = email;
+  }
+
+  let paymentMethod: PaymentMethod = 'whatsapp';
+  if (body.paymentMethod !== undefined) {
+    if (body.paymentMethod !== 'whatsapp' && body.paymentMethod !== 'online') {
+      return { ok: false, error: 'paymentMethod must be whatsapp or online' };
+    }
+    paymentMethod = body.paymentMethod;
+  }
+  if (paymentMethod === 'online' && !customer.email) {
+    return { ok: false, error: 'customer email is needed to pay online' };
+  }
+
+  let delivery: DeliveryInput | undefined;
+  if (body.delivery !== undefined && body.delivery !== null) {
+    const d = validateDelivery(body.delivery);
+    if (!d.ok) return d;
+    delivery = d.value;
+  }
+  return { ok: true, value: { id: body.id, items, customer, ...(delivery ? { delivery } : {}), paymentMethod } };
 }

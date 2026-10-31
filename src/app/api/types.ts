@@ -86,6 +86,38 @@ export interface Customer {
   name: string
   phone: string
   note?: string
+  email?: string
+}
+
+export type DeliveryMethod = 'door' | 'locker' | 'collect'
+
+export interface DeliveryAddress {
+  line1: string
+  line2?: string
+  suburb: string
+  city: string
+  postalCode: string
+}
+
+/** What the customer chooses. The fee is not sent: the server reads it from the delivery option. */
+export interface DeliveryInput {
+  method: DeliveryMethod
+  address?: DeliveryAddress
+  locker?: string
+}
+
+export interface DeliveryOption {
+  id: string
+  name: string
+  price: number
+}
+
+/** The delivery stored on a placed order. */
+export interface OrderDelivery {
+  method: string
+  address?: DeliveryAddress
+  locker?: string
+  fee: number
 }
 
 export interface OrderLine {
@@ -98,7 +130,16 @@ export interface OrderLine {
   subtotal: number
 }
 
-export type OrderStatus = 'pending' | 'cancelled'
+export type OrderStatus =
+  | 'pending'
+  | 'cancelled'
+  | 'awaiting_payment'
+  | 'paid'
+  | 'packed'
+  | 'shipped'
+  | 'delivered'
+  | 'expired'
+  | 'refunded'
 
 export interface Order {
   id: string
@@ -106,8 +147,20 @@ export interface Order {
   createdAt: string
   status: OrderStatus
   lines: OrderLine[]
+  /** Includes `deliveryFee`. */
   total: number
   customer: Customer
+  /** Missing on orders read from an older server; null when empty. */
+  deliveryFee?: number
+  delivery?: OrderDelivery | null
+  /** How the customer chose to pay; null on orders from before online payment. */
+  paymentMethod?: 'whatsapp' | 'online' | null
+  /** Set by the server when a payment needs a manual check. */
+  paymentFlag?: 'amount_mismatch' | 'refund_due' | null
+  /** ISO time the order was marked paid; null until then. */
+  paidAt?: string | null
+  /** ISO time the order auto-cancels if unpaid; null when it does not expire. */
+  expiresAt?: string | null
 }
 
 export interface StockShortfall {

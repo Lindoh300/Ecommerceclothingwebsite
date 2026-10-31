@@ -5,10 +5,10 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { whatsappLink } from "../config/shop";
-import { placeOrder } from "../api/orders";
+import { listDeliveryOptions, placeOrder } from "../api/orders";
 import { ApiError } from "../api/client";
-import type { CartQuoteItem, Order, StockShortfall } from "../api/types";
-import { buildOrderMessage } from "../utils/orderMessage";
+import type { CartQuoteItem, DeliveryInput, DeliveryMethod, DeliveryOption, Order, StockShortfall } from "../api/types";
+import { buildOrderMessage, deliveryLabel } from "../utils/orderMessage";
 
 interface CheckoutPanelProps {
   items: CartQuoteItem[];
@@ -16,6 +16,8 @@ interface CheckoutPanelProps {
   onStockShort: () => void;
   onCartCleared: () => void;
   onOrderChange: (placed: boolean) => void;
+  /** The server's items total from the cart quote, without delivery. */
+  itemsTotal?: number;
 }
 
 function validate(name: string, phone: string, note: string): Record<string, string> {
@@ -30,7 +32,41 @@ function validate(name: string, phone: string, note: string): Record<string, str
   return errors;
 }
 
-export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onOrderChange }: CheckoutPanelProps) {
+interface AddressFields {
+  line1: string;
+  line2: string;
+  suburb: string;
+  city: string;
+  postalCode: string;
+}
+
+const EMPTY_ADDRESS: AddressFields = { line1: "", line2: "", suburb: "", city: "", postalCode: "" };
+const OPTIONS_TIMEOUT_MS = 8000;
+
+const money = (n: number) => `R${n.toFixed(2)}`;
+const priceLabel = (n: number) => (n === 0 ? "Free" : money(n));
+
+function validateDelivery(method: string | null, address: AddressFields, locker: string): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (!method) {
+    errors.delivery = "Choose how you want to receive your order";
+  } else if (method === "door") {
+    if (!address.line1.trim()) errors.line1 = "Enter your street address";
+    if (!address.suburb.trim()) errors.suburb = "Enter your suburb";
+    if (!address.city.trim()) errors.city = "Enter your city";
+    if (!/^\d{4}$/.test(address.postalCode.trim())) errors.postalCode = "Enter a 4 digit postal code";
+    for (const [k, v] of Object.entries(address)) {
+      if (v.trim().length > 120) errors[k] = "Too long (120 characters max)";
+    }
+  } else if (method === "locker") {
+    const l = locker.trim();
+    if (!l) errors.locker = "Enter the locker name or code";
+    else if (l.length > 120) errors.locker = "Too long (120 characters max)";
+  }
+  return errors;
+}
+
+export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onOrderChange, itemsTotal }: CheckoutPanelProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [note, setNote] = useState("");
@@ -40,6 +76,42 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
   const orderId = useRef<string | null>(null);
   const inFlight = useRef(false);
+  // Delivery options load after mount (never during render). null while loading, [] when the
+  // load failed or there are none: then the customer orders without delivery.
+  const [options, setOptions] = useState<DeliveryOption[] | null>(null);
+  const [optionsFailed, setOptionsFailed] = useState(false);
+  const [method, setMethod] = useState<string | null>(null);
+  const [address, setAddress] = useState<AddressFields>(EMPTY_ADDRESS);
+  const [locker, setLocker] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(() => {
+      if (live) {
+        setOptions([]);
+        setOptionsFailed(true);
+      }
+    }, OPTIONS_TIMEOUT_MS);
+    listDeliveryOptions()
+      .then((list) => {
+        if (live) setOptions(list);
+      })
+      .catch(() => {
+        if (live) {
+          setOptions([]);
+          setOptionsFailed(true);
+        }
+      })
+      .finally(() => clearTimeout(timer));
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const loadingOptions = options === null;
+  const chosen = options?.find((o) => o.id === method) ?? null;
+  const setAddr = (k: keyof AddressFields, v: string) => setAddress((a) => ({ ...a, [k]: v }));
 
   const itemsKey = JSON.stringify(items);
   useEffect(() => {
@@ -49,7 +121,10 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
 
   const handlePlaceOrder = async () => {
     if (inFlight.current || order) return;
-    const found = validate(name, phone, note);
+    const found = {
+      ...validate(name, phone, note),
+      ...(options && options.length > 0 ? validateDelivery(chosen ? chosen.id : null, address, locker) : {}),
+    };
     setErrors(found);
     if (Object.keys(found).length > 0) {
       toast.error("Check your details", { description: Object.values(found)[0] });
@@ -60,6 +135,22 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
     if (!orderId.current) orderId.current = crypto.randomUUID();
     try {
       const trimmedNote = note.trim();
+      let delivery: DeliveryInput | undefined;
+      if (chosen) {
+        delivery = { method: chosen.id as DeliveryMethod };
+        if (chosen.id === "door") {
+          const line2 = address.line2.trim();
+          delivery.address = {
+            line1: address.line1.trim(),
+            ...(line2 ? { line2 } : {}),
+            suburb: address.suburb.trim(),
+            city: address.city.trim(),
+            postalCode: address.postalCode.trim(),
+          };
+        } else if (chosen.id === "locker") {
+          delivery.locker = locker.trim();
+        }
+      }
       const placed = await placeOrder({
         id: orderId.current,
         items: JSON.parse(itemsKey) as CartQuoteItem[],
@@ -68,6 +159,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
           phone: phone.trim(),
           ...(trimmedNote ? { note: trimmedNote } : {}),
         },
+        ...(delivery ? { delivery } : {}),
       });
       setOrder(placed);
       onOrderChange(true);
@@ -86,10 +178,30 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
             : "Some items are no longer available in that quantity.",
         });
         onStockShort();
+      } else if (err instanceof ApiError && err.status === 400 && err.message === "Unknown delivery option") {
+        // The shop changed its options since this page loaded: show the current ones.
+        setMethod(null);
+        setOptions(null);
+        listDeliveryOptions()
+          .then(setOptions)
+          .catch(() => {
+            setOptions([]);
+            setOptionsFailed(true);
+          });
+        toast.error("That delivery option is no longer available", { description: "Choose another one and try again." });
       } else if (err instanceof ApiError && err.status === 400 && (err.body as { missing?: unknown } | undefined)?.missing) {
         orderId.current = null;
         toast.error("Some items are no longer available", { description: "Remove them from your cart and try again." });
         onStockShort();
+      } else if (err instanceof ApiError && err.status === 429) {
+        // No order was created, so the id is kept and a retry is safe.
+        toast.error("Order limit reached", { description: err.message });
+      } else if (
+        err instanceof ApiError &&
+        err.status === 400 &&
+        (err.body as { code?: unknown } | undefined)?.code === "too_many_units"
+      ) {
+        toast.error("Too many items in one order", { description: err.message });
       } else {
         toast.error("Could not place your order", {
           description: err instanceof Error ? `${err.message}. Please try again.` : "Please try again.",
@@ -121,6 +233,15 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
       {order ? (
         <div className="border border-b10 p-4 mb-4">
           <p className="micro text-b60 mb-2">Order {order.ref} saved</p>
+          {order.delivery && (
+            <div className="flex justify-between mb-2">
+              <span>
+                {deliveryLabel(order.delivery.method)}
+                {order.delivery.locker ? `: ${order.delivery.locker}` : ""}
+              </span>
+              <span className="font-mono">{priceLabel(order.delivery.fee)}</span>
+            </div>
+          )}
           <div className="flex justify-between mb-2">
             <span>Total</span>
             <span className="font-mono">R{order.total.toFixed(2)}</span>
@@ -169,6 +290,104 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
             />
             {errors.note && <p className="text-sm text-prism">{errors.note}</p>}
           </div>
+
+          {loadingOptions && <p className="text-sm text-b60">Loading delivery options…</p>}
+          {optionsFailed && (
+            <p className="text-sm text-b60">
+              Delivery options could not be loaded. You can still place your order and we will sort out delivery with you on WhatsApp.
+            </p>
+          )}
+          {options && options.length > 0 && (
+            <fieldset className="space-y-2" disabled={submitting} aria-describedby={errors.delivery ? "checkout-delivery-error" : undefined}>
+              <legend className="micro text-b60 mb-2">Delivery</legend>
+              {options.map((o) => (
+                <label
+                  key={o.id}
+                  className={`flex items-center justify-between gap-4 border p-3 cursor-pointer r-card ${
+                    method === o.id ? "border-prism" : "border-b10"
+                  }`}
+                >
+                  <span className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="checkout-delivery"
+                      value={o.id}
+                      checked={method === o.id}
+                      className="accent-prism"
+                      onChange={() => setMethod(o.id)}
+                    />
+                    {o.name}
+                  </span>
+                  <span className="font-mono">{priceLabel(o.price)}</span>
+                </label>
+              ))}
+              {errors.delivery && (
+                <p id="checkout-delivery-error" role="alert" className="text-sm text-prism">
+                  {errors.delivery}
+                </p>
+              )}
+            </fieldset>
+          )}
+          {chosen?.id === "door" && (
+            <div className="space-y-4">
+              {(
+                [
+                  ["line1", "Street address", "address-line1"],
+                  ["line2", "Apartment, complex (optional)", "address-line2"],
+                  ["suburb", "Suburb", "address-level3"],
+                  ["city", "City", "address-level2"],
+                  ["postalCode", "Postal code", "postal-code"],
+                ] as const
+              ).map(([key, label, auto]) => (
+                <div key={key} className="space-y-1">
+                  <Label htmlFor={`checkout-${key}`}>{label}</Label>
+                  <Input
+                    id={`checkout-${key}`}
+                    value={address[key]}
+                    maxLength={key === "postalCode" ? 4 : 120}
+                    inputMode={key === "postalCode" ? "numeric" : undefined}
+                    autoComplete={auto}
+                    disabled={submitting}
+                    aria-invalid={!!errors[key]}
+                    onChange={(e) => setAddr(key, e.target.value)}
+                  />
+                  {errors[key] && <p className="text-sm text-prism">{errors[key]}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          {chosen?.id === "locker" && (
+            <div className="space-y-1">
+              <Label htmlFor="checkout-locker">Locker name or code</Label>
+              <Input
+                id="checkout-locker"
+                value={locker}
+                maxLength={120}
+                disabled={submitting}
+                aria-invalid={!!errors.locker}
+                onChange={(e) => setLocker(e.target.value)}
+              />
+              {errors.locker && <p className="text-sm text-prism">{errors.locker}</p>}
+            </div>
+          )}
+          {chosen && typeof itemsTotal === "number" && (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-b60">Delivery</span>
+                <span className="font-mono">{priceLabel(chosen.price)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-b60">Estimated total</span>
+                <span className="font-mono">{money(itemsTotal + chosen.price)}</span>
+              </div>
+            </div>
+          )}
+          {chosen && typeof itemsTotal !== "number" && (
+            <div className="flex justify-between text-sm">
+              <span className="text-b60">Delivery, added to your total</span>
+              <span className="font-mono">{priceLabel(chosen.price)}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -178,7 +397,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
           {awaitingConfirm ? "Open WhatsApp again" : "Send on WhatsApp"}
         </button>
       ) : (
-        <button onClick={handlePlaceOrder} disabled={blocked || submitting} className="cta w-full">
+        <button onClick={handlePlaceOrder} disabled={blocked || submitting || loadingOptions} className="cta w-full">
           {submitting ? "Placing order…" : "Place order"}
         </button>
       )}
