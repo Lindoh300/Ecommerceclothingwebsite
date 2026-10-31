@@ -1,20 +1,23 @@
-import { useParams, useNavigate } from "react-router";
+import { Link, useParams, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { addToCart, findVariant, getCart } from "../utils/storage";
 import type { CartLine } from "../utils/storage";
 import type { Product } from "../api/types";
-import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
 import { toast } from "../lib/toast";
 import { useProduct, useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
 import { ProductImage } from "./prism/ProductImage";
 import { LoadState } from "./prism/LoadState";
+import { StockMark } from "./ProductCard";
+import { shop, whatsappLink } from "../config/shop";
+import { categoryPath } from "../utils/categoryPath";
 
 const LOW_STOCK_LIMIT = 3;
 
 // Struck through and disabled when the option has no stock; the text stays for screen readers.
 const optionClass = (selected: boolean) =>
-  `min-w-[48px] px-4 py-2 border text-sm transition-colors disabled:cursor-not-allowed disabled:border-b10 disabled:bg-b5 disabled:text-b60 disabled:line-through ${
+  `min-w-[48px] min-h-[44px] px-4 py-2 border text-sm transition-colors motion-reduce:transition-none disabled:cursor-not-allowed disabled:border-b10 disabled:bg-b5 disabled:text-b60 disabled:line-through ${
     selected ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink border-b10 hover:border-ink'
   }`;
 
@@ -91,6 +94,16 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
   const soldOut = !!product && (product.variants?.length ? product.variants.every((v) => v.stock <= 0) : product.stock <= 0);
   const categoryName = categories.find((c) => c.id === product?.category)?.name ?? product?.category;
 
+  const askMessage = product
+    ? [
+        `Hi ${shop.name}, I am interested in ${product.name} (R${product.price}).`,
+        size ? `Size: ${size}.` : "",
+        color ? `Colour: ${color}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+
   if (!product && !notFound && (loading || error)) {
     return (
       <div className="min-h-screen bg-paper py-12 md:py-16">
@@ -142,15 +155,23 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
       <div className="max-w-[1968px] mx-auto px-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="linkr text-ink mb-10"
-        >
-          <ArrowLeft className="w-3 h-3" />
-          Back
-        </button>
+        <div className="mb-10 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <button type="button" onClick={() => navigate(-1)} className="linkr text-ink">
+            <ArrowLeft className="w-3 h-3" />
+            Back
+          </button>
+          <nav aria-label="Breadcrumb" className="micro text-b60 min-w-0 break-words">
+            <Link to="/shop" className="hover:text-ink">Shop</Link>
+            {categoryName && (
+              <>
+                {" / "}
+                <Link to={categoryPath(product.category)} className="hover:text-ink">{categoryName}</Link>
+              </>
+            )}
+          </nav>
+        </div>
 
-        <div className="grid md:grid-cols-2 gap-10 md:gap-16">
+        <div className="grid md:grid-cols-2 gap-10 md:gap-16 md:items-start">
           {/* Product Image Gallery */}
           <div className="flex flex-col gap-3">
             {/* Main Image */}
@@ -189,48 +210,39 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
               )}
             </div>
 
-            {/* Thumbnail Strip — always show 3 slots */}
-            <div className="grid grid-cols-3 gap-3">
-              {[0, 1, 2].map((index) => {
-                const img = product.images?.[index];
-                const isActive = activeImageIndex === index;
-                const views = ['Front view', 'Back view', 'Side view'];
-                return img ? (
-                  <button
-                    key={index}
-                    onClick={() => setActiveImageIndex(index)}
-                    className={`group relative aspect-square overflow-hidden border transition-colors duration-200 ${
-                      isActive
-                        ? 'border-ink'
-                        : 'border-b10 hover:border-prism'
-                    }`}
-                  >
-                    <ProductImage src={img} alt={`${product.name} — ${views[index]}`} seed={`${product.id}-${index}`} />
-                    <div className={`absolute inset-x-0 bottom-0 py-1 text-center font-mono text-[10px] caps transition-colors ${
-                      isActive ? 'bg-ink text-paper' : 'bg-scrim/40 text-on-scrim group-hover:bg-prism group-hover:text-on-accent'
-                    }`}>
-                      {views[index]}
-                    </div>
-                  </button>
-                ) : (
-                  <div
-                    key={index}
-                    className="aspect-square border border-dashed border-b10 flex flex-col items-center justify-center gap-1"
-                  >
-                    <span className="text-b60 text-xl">+</span>
-                    <span className="micro text-b60 text-[10px]">{views[index]}</span>
-                  </div>
-                );
-              })}
-            </div>
+            {/* Thumbnails: one per image the product has */}
+            {totalImages > 1 && (
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+                {galleryImages.map((img, index) => {
+                  const isActive = activeImageIndex === index;
+                  return (
+                    <button
+                      key={`${img}-${index}`}
+                      type="button"
+                      onClick={() => setActiveImageIndex(index)}
+                      aria-label={`Show image ${index + 1} of ${totalImages}`}
+                      aria-pressed={isActive}
+                      className={`relative aspect-square overflow-hidden border transition-colors motion-reduce:transition-none ${
+                        isActive ? 'border-ink' : 'border-b10 hover:border-prism'
+                      }`}
+                    >
+                      <ProductImage src={img} alt="" seed={`${product.id}-${index}`} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Product Info */}
-          <div>
+          <div className="min-w-0 md:sticky md:top-24">
             <p className="micro text-b60 mb-3">{categoryName}</p>
             <h1 className="display h-mid mb-4">{product.name}</h1>
-            <p className="font-mono text-2xl text-ink mb-4">R{product.price}</p>
-            <p className="text-b60 mb-8">{product.description}</p>
+            <div className="mb-6 flex flex-wrap items-center gap-4">
+              <p className="font-mono text-2xl text-ink">R{product.price}</p>
+              <StockMark product={product} />
+            </div>
+            <p className="text-b60 mb-8 whitespace-pre-line">{product.description}</p>
 
             {/* Size Selection */}
             {product.sizes.length > 0 && (
@@ -300,7 +312,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
                 </button>
               </div>
               {optionsChosen && selectedStock > 0 && selectedStock <= LOW_STOCK_LIMIT && (
-                <p className="micro text-prism mt-3">Only {selectedStock} left</p>
+                <p className="micro text-ink mt-3">Only {selectedStock} left</p>
               )}
               {optionsChosen && selectedStock > 0 && remaining === 0 && (
                 <p className="micro text-b60 mt-3">You have all available in your cart</p>
@@ -322,6 +334,17 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
                 Select {!sizeChosen && !colorChosen ? 'a size and a color' : !sizeChosen ? 'a size' : 'a color'} to add to cart
               </p>
             )}
+
+            {/* Ask on WhatsApp: the message names the product and the chosen size and colour. */}
+            <a
+              href={whatsappLink(askMessage)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="caps mt-4 flex h-12 w-full items-center justify-center gap-2 border border-ink px-6 text-sm text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:bg-ink focus-visible:text-paper motion-reduce:transition-none"
+            >
+              <MessageCircle className="w-5 h-5" aria-hidden="true" />
+              Ask on WhatsApp
+            </a>
           </div>
         </div>
       </div>

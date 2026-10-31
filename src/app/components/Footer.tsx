@@ -3,6 +3,7 @@ import { Facebook, Instagram } from "lucide-react";
 import { shop } from "../config/shop";
 import { useCategories } from "../hooks/useCategories";
 import { categoryPath } from "../utils/categoryPath";
+import { SubscribeForm } from "./SubscribeForm";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -20,6 +21,10 @@ export function Footer() {
             <p className="max-w-[260px] text-lg leading-[1.45]">
               Premium quality clothing for every occasion.
             </p>
+            <div className="max-w-sm">
+              <h3 className="micro mb-4 text-b60">Join the list</h3>
+              <SubscribeForm source="footer" compact />
+            </div>
           </div>
 
           {/* Link columns */}
@@ -39,9 +44,10 @@ export function Footer() {
               <h3 className="micro mb-4 text-b60">Customer Service</h3>
               <ul className="space-y-2">
                 <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Contact Us</Link></li>
-                <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Shipping Info</Link></li>
-                <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Returns</Link></li>
-                <li><Link to="/customer-service" className="text-sm caps hover:text-prism transition-colors">Size Guide</Link></li>
+                <li><Link to="/delivery" className="text-sm caps hover:text-prism transition-colors">Shipping Info</Link></li>
+                <li><Link to="/track" className="text-sm caps hover:text-prism transition-colors">Track an order</Link></li>
+                <li><Link to="/returns" className="text-sm caps hover:text-prism transition-colors">Returns</Link></li>
+                <li><Link to="/size-guide" className="text-sm caps hover:text-prism transition-colors">Size Guide</Link></li>
               </ul>
             </div>
 
@@ -49,7 +55,10 @@ export function Footer() {
               <h3 className="micro mb-4 text-b60">About</h3>
               <ul className="space-y-2">
                 <li><Link to="/about" className="text-sm caps hover:text-prism transition-colors">Our Story</Link></li>
-                <li><Link to="/about" className="text-sm caps hover:text-prism transition-colors">Sustainability</Link></li>
+                <li><Link to="/events" className="text-sm caps hover:text-prism transition-colors">Events</Link></li>
+                <li><Link to="/community" className="text-sm caps hover:text-prism transition-colors">Community</Link></li>
+                <li><Link to="/terms" className="text-sm caps hover:text-prism transition-colors">Terms</Link></li>
+                <li><Link to="/privacy" className="text-sm caps hover:text-prism transition-colors">Privacy</Link></li>
               </ul>
             </div>
 

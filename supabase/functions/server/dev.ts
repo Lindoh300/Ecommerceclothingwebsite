@@ -3,21 +3,38 @@
 // The stores below mirror the Postgres functions in
 // supabase/migrations/20261030000000_catalogue.sql, 20261030100000_order_lifecycle.sql,
 // 20261030110000_delivery.sql, 20261030120000_payments.sql and 20261030130000_place_order_v3.sql
-// (which also holds the order expiry; 20261030140000_order_expiry_cron.sql only schedules it).
+// (which also holds the order expiry; 20261030140000_order_expiry_cron.sql only schedules it), and
+// 20261031100000_order_fulfilment.sql (cancelled -> refunded, tracking, extend, lookup), and
+// 20261031110000_payment_links.sql (set_payment_window), and 20261031120000_events.sql (events, ticket types,
+// tickets: memoryEvents below), and 20261031130000_community.sql (gallery and mailing list: memoryCommunity).
 // When one changes, change the other.
 import { createApp, deriveImage, resolveVariant } from './app.ts';
 import { createFakeProvider } from './fake_payments.ts';
 import type { PaymentProvider } from './payments.ts';
 import { seedCatalogue } from './seed.ts';
+import { normalisePhone } from './validation.ts';
 import type {
+  AdminEvent,
+  AdminGalleryItem,
+  CommunityStore,
+  GalleryInput,
+  Subscriber,
+  UpsertGalleryResult,
+  AdminTicketType,
   Category,
   CategoryStore,
+  CheckInResult,
   CreateProductResult,
   Customer,
   DeleteCategoryResult,
   DeliveryOption,
   DeliveryOptionStore,
+  DeleteEventResult,
   Deps,
+  EventInput,
+  EventStore,
+  ExtendResult,
+  LookupResult,
   Order,
   OrderItemInput,
   OrderLine,
@@ -27,12 +44,23 @@ import type {
   PaymentInfo,
   PlaceOrderResult,
   Product,
+  PublicEvent,
   ProductStore,
   RecordPaymentResult,
+  SetPaymentWindowResult,
   SetStatusResult,
+  SetTrackingResult,
   StockShortfall,
+  Ticket,
+  TicketHolder,
+  TicketTypeInput,
+  TrackingInput,
   UpdateProductResult,
+  UpsertEventResult,
+  UpsertTicketTypeResult,
   Variant,
+  VoidResult,
+  IssueResult,
 } from './types.ts';
 
 export type Lock = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -351,10 +379,15 @@ const PENDING_TTL_MS = 48 * 60 * 60 * 1000;
 const AWAITING_PAYMENT_TTL_MS = 30 * 60 * 1000;
 /** At most this many orders per client address in a rolling hour. */
 const ORDERS_PER_IP = 5;
+/** At most this many order lookups per client address in a rolling hour. */
+const LOOKUPS_PER_IP = 10;
+/** How long extend adds to a pending order. */
+const EXTEND_MS = 48 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
 /** Allowed order status moves (from -> to), the table in set_order_status.
- *  `pending -> expired` is not allowed: the expiry job cancels due pending orders. */
+ *  `pending -> expired` is not allowed: the expiry job cancels due pending orders.
+ *  `cancelled -> refunded` is listed but ALSO needs payment_flag = 'refund_due' (checked in setStatus). */
 export const ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
   pending: ['paid', 'cancelled'],
   awaiting_payment: ['paid', 'cancelled', 'expired'],
@@ -363,7 +396,7 @@ export const ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatu
   shipped: ['delivered', 'refunded'],
   delivered: ['refunded'],
   expired: ['refunded'],
-  cancelled: [],
+  cancelled: ['refunded'],
   refunded: [],
 };
 
@@ -376,6 +409,8 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
   // order_ip_log: when each order from an address was placed. SQL keeps a salted hash instead of the address;
   // this is memory in a dev process, so the address itself is the key.
   const ipLog = new Map<string, number[]>();
+  // order_lookup_log: the same, for lookups.
+  const lookupLog = new Map<string, number[]>();
   const iso = (ms: number = now()) => new Date(ms).toISOString();
   // payment_reference and payment_url: stored on the order row in SQL, never part of the Order JSON.
   const payments = new Map<string, { reference: string; url: string }>();
@@ -510,14 +545,83 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
     if (order.status === status && (from === undefined || from === order.status)) {
       return { ok: true, changed: false, order: structuredClone(order) };
     }
-    if ((from !== undefined && from !== order.status) || !ORDER_TRANSITIONS[order.status]?.includes(status)) {
+    // cancelled -> refunded needs the refund_due flag: only a cancelled order that was paid after the fact.
+    const allowed = ORDER_TRANSITIONS[order.status]?.includes(status) &&
+      !(order.status === 'cancelled' && order.paymentFlag !== 'refund_due');
+    if ((from !== undefined && from !== order.status) || !allowed) {
       return { ok: false, reason: 'bad_transition', from: order.status, to: status, order: structuredClone(order) };
     }
     if (status === 'cancelled' || status === 'expired') returnStock(order.lines);
     if (status === 'paid') order.paidAt = order.paidAt ?? iso();
     if (['paid', 'packed', 'shipped', 'delivered', 'refunded'].includes(status)) order.expiresAt = null;
+    if (status === 'refunded' && order.paymentFlag === 'refund_due') order.paymentFlag = null;
     order.status = status;
     return { ok: true, changed: true, order: structuredClone(order) };
+  }
+
+  /** get_order */
+  function get(rawId: string): Order | null {
+    const o = orders.get(rawId.toLowerCase());
+    return o ? structuredClone(o) : null;
+  }
+
+  /** set_order_tracking: a missing key keeps the stored value, a string is trimmed, empty or null clears it. */
+  function setTracking(rawId: string, t: TrackingInput): SetTrackingResult {
+    const order = orders.get(rawId.toLowerCase());
+    if (!order) return { ok: false, reason: 'not_found' };
+    if (order.status !== 'packed' && order.status !== 'shipped') {
+      return { ok: false, reason: 'bad_status', order: structuredClone(order) };
+    }
+    const next = { courier: null, number: null, url: null, ...order.tracking } as {
+      courier: string | null;
+      number: string | null;
+      url: string | null;
+    };
+    for (const k of ['courier', 'number', 'url'] as const) {
+      if (t[k] !== undefined) next[k] = t[k]?.trim() || null;
+    }
+    order.tracking = next.courier === null && next.number === null && next.url === null ? null : next;
+    return { ok: true, order: structuredClone(order) };
+  }
+
+  /** extend_order: expires_at = greatest(expires_at, now) + 48 hours, for a pending order that has an expiry. */
+  function extend(rawId: string): ExtendResult {
+    const order = orders.get(rawId.toLowerCase());
+    if (!order) return { ok: false, reason: 'not_found' };
+    if (order.status !== 'pending' || !order.expiresAt) {
+      return { ok: false, reason: 'not_extendable', order: structuredClone(order) };
+    }
+    order.expiresAt = iso(Math.max(Date.parse(order.expiresAt), now()) + EXTEND_MS);
+    return { ok: true, order: structuredClone(order) };
+  }
+
+  /** set_payment_window: an awaiting_payment order only; expires_at = now + hours. */
+  function setPaymentWindow(rawId: string, hours: number): SetPaymentWindowResult {
+    const order = orders.get(rawId.toLowerCase());
+    if (!order) return { ok: false, reason: 'not_found' };
+    if (order.status !== 'awaiting_payment') return { ok: false, reason: 'bad_status', order: structuredClone(order) };
+    order.expiresAt = iso(now() + hours * HOUR_MS);
+    return { ok: true, order: structuredClone(order) };
+  }
+
+  /** lookup_order: the per-address count comes first and every lookup counts; a refused one is not logged. */
+  function lookup(ref: string, phone: string, ip?: string): LookupResult {
+    if (ip) {
+      const recent = (lookupLog.get(ip) ?? []).filter((t) => t > now() - HOUR_MS);
+      if (recent.length >= LOOKUPS_PER_IP) {
+        lookupLog.set(ip, recent);
+        return { ok: false, reason: 'rate_limited' };
+      }
+      lookupLog.set(ip, [...recent, now()]);
+    }
+    const wantRef = ref.trim().toUpperCase();
+    const digits = (s: string) => s.replace(/\D/g, '');
+    const wantPhone = digits(phone);
+    if (wantRef.length !== 8 || wantPhone.length < 7) return { ok: false, reason: 'not_found' };
+    const found = [...orders.values()]
+      .filter((o) => o.ref.toUpperCase() === wantRef && digits(o.customer.phone ?? '').slice(-9) === wantPhone.slice(-9))
+      .sort((a, b) => cmp(b.createdAt, a.createdAt) || cmp(a.id, b.id))[0];
+    return found ? { ok: true, id: found.id } : { ok: false, reason: 'not_found' };
   }
 
   /** cancel_order_v2: the order, unchanged when it cannot be cancelled; null when unknown. */
@@ -631,6 +735,11 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
     cancel: (id) => lock(() => Promise.resolve(cancel(id))),
     expireDue: () => lock(() => Promise.resolve(expireDue())),
     setStatus: (id, status, from) => lock(() => Promise.resolve(setStatus(id, status, from))),
+    get: (id) => lock(() => Promise.resolve(get(id))),
+    setTracking: (id, t) => lock(() => Promise.resolve(setTracking(id, t))),
+    extend: (id) => lock(() => Promise.resolve(extend(id))),
+    setPaymentWindow: (id, hours) => lock(() => Promise.resolve(setPaymentWindow(id, hours))),
+    lookup: (ref, phone, ip) => lock(() => Promise.resolve(lookup(ref, phone, ip))),
     patch: (id, fields) => {
       const order = orders.get(id.toLowerCase());
       if (!order) throw new Error('no such order');
@@ -647,6 +756,521 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
   };
 }
 
+// --- Events and tickets: mirrors 20261031120000_events.sql ------------------------------------------------------
+
+type StoredEvent = Omit<AdminEvent, 'ticketTypes'>;
+type StoredTicketType = Omit<AdminTicketType, 'available' | 'onSale'>;
+
+/** Most RSVP requests per client address in a rolling hour. */
+const RSVPS_PER_IP = 5;
+const SIX_HOURS_MS = 6 * HOUR_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** 16 random bytes as 32 lowercase hex characters: the same 128 bits as gen_random_bytes(16) in SQL. */
+const newTicketCode = (): string =>
+  [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * In-memory events, ticket types and tickets that mirror the functions in 20261031120000_events.sql: the same
+ * results, reasons and rules. The shared lock stands in for the ticket_types row lock. `now` is the clock
+ * (milliseconds), so tests can jump time. The address limit keys on the address itself (SQL keeps a salted hash).
+ */
+export function memoryEvents(lock: Lock = createLock(), now: () => number = Date.now): EventStore {
+  const events = new Map<string, StoredEvent>();
+  const types = new Map<string, StoredTicketType>();
+  const tickets = new Map<string, Ticket>();
+  const rsvpLog = new Map<string, number[]>();
+  const iso = (ms: number = now()) => new Date(ms).toISOString();
+  const ms = (s: string) => Date.parse(s);
+
+  /** event_ended */
+  const ended = (e: StoredEvent) => (e.endsAt ? ms(e.endsAt) : ms(e.startsAt) + SIX_HOURS_MS) < now();
+
+  /** ticket_type_json */
+  function typeView(t: StoredTicketType, admin: boolean): AdminTicketType | PublicEvent['ticketTypes'][number] {
+    const e = events.get(t.eventId)!;
+    const onSale = t.active &&
+      (t.saleStartsAt === null || ms(t.saleStartsAt) <= now()) &&
+      (t.saleEndsAt === null || ms(t.saleEndsAt) > now()) &&
+      !ended(e);
+    const base = { id: t.id, name: t.name, price: t.price, available: Math.max(t.capacity - t.sold, 0), onSale };
+    return structuredClone(admin ? { ...base, ...t, price: t.price } : base);
+  }
+
+  /** event_json */
+  function eventView(e: StoredEvent, admin: true): AdminEvent;
+  function eventView(e: StoredEvent, admin: false): PublicEvent;
+  function eventView(e: StoredEvent, admin: boolean): AdminEvent | PublicEvent {
+    const ts = [...types.values()]
+      .filter((t) => t.eventId === e.id && (admin || t.active))
+      .sort((a, b) => a.sort - b.sort || cmp(a.name, b.name) || cmp(a.id, b.id))
+      .map((t) => typeView(t, admin));
+    const { status, createdAt, ...pub } = e;
+    return structuredClone(
+      admin ? { ...pub, status, createdAt, ticketTypes: ts } : { ...pub, ticketTypes: ts },
+    ) as AdminEvent | PublicEvent;
+  }
+
+  /** group_tickets_json: the first-issued ticket first, then by creation time and code. */
+  const group = (groupId: string): Ticket[] =>
+    [...tickets.values()]
+      .filter((t) => t.groupId === groupId)
+      .sort((a, b) =>
+        Number(a.id !== a.groupId) - Number(b.id !== b.groupId) || cmp(a.createdAt, b.createdAt) || cmp(a.code, b.code)
+      )
+      .map((t) => structuredClone(t));
+
+  /** issue_tickets, in two steps: `plan` is everything up to the capacity check, `commit` takes the seats. */
+  type Plan = { ok: true; type: StoredTicketType; event: StoredEvent } | Extract<IssueResult, { ok: false }>;
+  function plan(groupId: string, eventId: string | null, typeId: string, qty: number, source: 'rsvp' | 'issued'): Plan {
+    if ([...tickets.values()].some((t) => t.groupId === groupId)) return { ok: false, reason: 'id_taken' };
+    const type = types.get(typeId);
+    if (!type || (eventId !== null && type.eventId !== eventId)) return { ok: false, reason: 'not_found' };
+    const event = events.get(type.eventId)!;
+    if (source === 'rsvp') {
+      if (type.price !== 0) return { ok: false, reason: 'paid_type' };
+      if (ended(event)) return { ok: false, reason: 'event_ended' };
+      if (
+        !type.active || (type.saleStartsAt !== null && ms(type.saleStartsAt) > now()) ||
+        (type.saleEndsAt !== null && ms(type.saleEndsAt) <= now())
+      ) return { ok: false, reason: 'not_on_sale' };
+    } else if (event.status === 'cancelled') {
+      return { ok: false, reason: 'event_cancelled' };
+    }
+    if (type.sold + qty > type.capacity) {
+      return { ok: false, reason: 'sold_out', available: Math.max(type.capacity - type.sold, 0) };
+    }
+    return { ok: true, type, event };
+  }
+  function commit(p: Extract<Plan, { ok: true }>, groupId: string, qty: number, holder: TicketHolder, source: 'rsvp' | 'issued') {
+    p.type.sold += qty;
+    for (let i = 0; i < qty; i++) {
+      const id = i === 0 ? groupId : crypto.randomUUID();
+      tickets.set(id, {
+        id,
+        code: newTicketCode(),
+        groupId,
+        eventId: p.event.id,
+        eventTitle: p.event.title,
+        eventSlug: p.event.slug,
+        startsAt: p.event.startsAt,
+        venue: p.event.venue,
+        city: p.event.city,
+        ticketTypeId: p.type.id,
+        ticketTypeName: p.type.name,
+        holderName: holder.name.trim(),
+        holderPhone: holder.phone.trim(),
+        holderEmail: holder.email?.trim() || null,
+        source,
+        checkedInAt: null,
+        voidedAt: null,
+        createdAt: iso(),
+      });
+    }
+  }
+  /** The ticket fields that come from its event and type, read fresh like ticket_json's join. */
+  const fresh = (t: Ticket): Ticket => {
+    const e = events.get(t.eventId)!;
+    const tt = types.get(t.ticketTypeId)!;
+    return structuredClone({
+      ...t,
+      eventTitle: e.title,
+      eventSlug: e.slug,
+      startsAt: e.startsAt,
+      venue: e.venue,
+      city: e.city,
+      ticketTypeName: tt.name,
+    });
+  };
+  const byCode = (code: string) => {
+    const c = code.trim().toLowerCase();
+    return [...tickets.values()].find((t) => t.code === c);
+  };
+
+  function rsvp(id: string, slug: string, typeId: string, qty: number, holder: TicketHolder, ip?: string): IssueResult {
+    if (!Number.isInteger(qty) || qty < 1 || qty > 4) return { ok: false, reason: 'bad_quantity' };
+    const existing = group(id);
+    if (existing.length > 0 && existing[0].source === 'rsvp' && existing[0].eventSlug === slug) {
+      return { ok: true, created: false, tickets: existing.map(fresh) };
+    }
+    const event = [...events.values()].find((e) => e.slug === slug && e.status === 'published');
+    if (!event) return { ok: false, reason: 'not_found' };
+    const p = plan(id, event.id, typeId, qty, 'rsvp');
+    if (!p.ok) return p;
+    // The address limit, last: over it, nothing is kept.
+    if (ip) {
+      const recent = (rsvpLog.get(ip) ?? []).filter((t) => t > now() - HOUR_MS);
+      if (recent.length >= RSVPS_PER_IP) {
+        rsvpLog.set(ip, recent);
+        return { ok: false, reason: 'rate_limited' };
+      }
+      rsvpLog.set(ip, [...recent, now()]);
+    }
+    commit(p, id, qty, holder, 'rsvp');
+    return { ok: true, created: true, tickets: group(id) };
+  }
+
+  function issue(id: string, typeId: string, qty: number, holder: TicketHolder): IssueResult {
+    if (!Number.isInteger(qty) || qty < 1 || qty > 20) return { ok: false, reason: 'bad_quantity' };
+    const existing = group(id);
+    if (existing.length > 0 && existing[0].source === 'issued') return { ok: true, created: false, tickets: existing };
+    const p = plan(id, null, typeId, qty, 'issued');
+    if (!p.ok) return p;
+    commit(p, id, qty, holder, 'issued');
+    return { ok: true, created: true, tickets: group(id) };
+  }
+
+  /** upsert_event */
+  function upsertEvent(id: string, input: EventInput): UpsertEventResult {
+    const ex = events.get(id);
+    const starts = input.startsAt !== undefined ? input.startsAt : (ex?.startsAt ?? null);
+    const ends = input.endsAt !== undefined ? input.endsAt : (ex?.endsAt ?? null);
+    if (ends !== null && starts !== null && ms(ends) < ms(starts)) return { ok: false, reason: 'bad_dates' };
+    if (!ex && (!input.title?.trim() || starts === null)) return { ok: false, reason: 'missing_fields' };
+    let slug: string;
+    if (input.slug) {
+      if ([...events.values()].some((e) => e.slug === input.slug && e.id !== id)) return { ok: false, reason: 'slug_taken' };
+      slug = input.slug;
+    } else if (ex) {
+      slug = ex.slug;
+    } else {
+      const base = (input.title ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'event';
+      slug = base.slice(0, 60);
+      for (let n = 2; [...events.values()].some((e) => e.slug === slug); n++) slug = `${base.slice(0, 60)}-${n}`;
+    }
+    if (!ex) {
+      const e: StoredEvent = {
+        id,
+        slug,
+        title: input.title!.trim(),
+        description: input.description ?? '',
+        startsAt: starts!,
+        endsAt: ends,
+        venue: input.venue ?? '',
+        city: input.city ?? '',
+        image: input.image ?? '',
+        status: input.status ?? 'draft',
+        createdAt: iso(),
+      };
+      events.set(id, e);
+      return { ok: true, created: true, event: eventView(e, true) };
+    }
+    ex.slug = slug;
+    ex.title = input.title?.trim() || ex.title;
+    ex.description = input.description ?? ex.description;
+    ex.startsAt = starts!;
+    ex.endsAt = ends;
+    ex.venue = input.venue ?? ex.venue;
+    ex.city = input.city ?? ex.city;
+    ex.image = input.image ?? ex.image;
+    ex.status = input.status ?? ex.status;
+    return { ok: true, created: false, event: eventView(ex, true) };
+  }
+
+  /** delete_event */
+  function deleteEvent(id: string): DeleteEventResult {
+    if (!events.has(id)) return { ok: false, reason: 'not_found' };
+    if ([...tickets.values()].some((t) => t.eventId === id)) return { ok: false, reason: 'has_tickets' };
+    for (const t of [...types.values()]) if (t.eventId === id) types.delete(t.id);
+    events.delete(id);
+    return { ok: true };
+  }
+
+  /** upsert_ticket_type */
+  function upsertTicketType(id: string, input: TicketTypeInput): UpsertTicketTypeResult {
+    const ex = types.get(id);
+    const capacity = input.capacity !== undefined ? input.capacity : ex?.capacity;
+    const from = input.saleStartsAt !== undefined ? input.saleStartsAt : (ex?.saleStartsAt ?? null);
+    const to = input.saleEndsAt !== undefined ? input.saleEndsAt : (ex?.saleEndsAt ?? null);
+    if (from !== null && to !== null && ms(to) < ms(from)) return { ok: false, reason: 'bad_dates' };
+    if (!ex) {
+      if (!input.eventId || !events.has(input.eventId)) return { ok: false, reason: 'event_not_found' };
+      if (!input.name?.trim()) return { ok: false, reason: 'missing_fields' };
+      const t: StoredTicketType = {
+        id,
+        eventId: input.eventId,
+        name: input.name.trim(),
+        price: input.price ?? 0,
+        capacity: capacity ?? 0,
+        sold: 0,
+        saleStartsAt: from,
+        saleEndsAt: to,
+        active: input.active ?? true,
+        sort: input.sort ?? 0,
+      };
+      types.set(id, t);
+      return { ok: true, created: true, ticketType: typeView(t, true) as AdminTicketType };
+    }
+    if ((capacity ?? 0) < ex.sold) return { ok: false, reason: 'capacity_below_sold', sold: ex.sold };
+    ex.name = input.name?.trim() || ex.name;
+    ex.price = input.price ?? ex.price;
+    ex.capacity = capacity!;
+    ex.saleStartsAt = from;
+    ex.saleEndsAt = to;
+    ex.active = input.active ?? ex.active;
+    ex.sort = input.sort ?? ex.sort;
+    return { ok: true, created: false, ticketType: typeView(ex, true) as AdminTicketType };
+  }
+
+  /** delete_ticket_type */
+  function deleteTicketType(id: string): DeleteEventResult {
+    const t = types.get(id);
+    if (!t) return { ok: false, reason: 'not_found' };
+    if (t.sold > 0 || [...tickets.values()].some((k) => k.ticketTypeId === id)) return { ok: false, reason: 'has_tickets' };
+    types.delete(id);
+    return { ok: true };
+  }
+
+  /** check_in_ticket: the first call wins; an offline scan time is kept only within the past 24 hours. */
+  function checkIn(code: string, at?: string, eventId?: string): CheckInResult {
+    const t = byCode(code);
+    if (!t) return { result: 'not_found' };
+    if (eventId && t.eventId !== eventId) return { result: 'wrong_event', ticket: fresh(t), checkedInAt: t.checkedInAt };
+    if (t.checkedInAt === null && t.voidedAt === null) {
+      const when = at !== undefined ? ms(at) : NaN;
+      t.checkedInAt = !Number.isNaN(when) && when <= now() && when >= now() - DAY_MS ? iso(when) : iso();
+      return { result: 'ok', ticket: fresh(t), checkedInAt: t.checkedInAt };
+    }
+    return { result: t.voidedAt !== null ? 'void' : 'already', ticket: fresh(t), checkedInAt: t.checkedInAt };
+  }
+
+  /** void_ticket: the seat goes back once; a used ticket cannot be voided. */
+  function voidTicket(code: string): VoidResult {
+    const t = byCode(code);
+    if (!t) return { ok: false, reason: 'not_found' };
+    if (t.checkedInAt !== null) return { ok: false, reason: 'used', ticket: fresh(t) };
+    if (t.voidedAt !== null) return { ok: true, changed: false, ticket: fresh(t) };
+    t.voidedAt = iso();
+    types.get(t.ticketTypeId)!.sold -= 1;
+    return { ok: true, changed: true, ticket: fresh(t) };
+  }
+
+  const published = () => [...events.values()].filter((e) => e.status === 'published');
+
+  return {
+    listPublic: (past = false) =>
+      lock(() =>
+        Promise.resolve(
+          published()
+            .filter((e) => ended(e) === past)
+            .sort((a, b) => (past ? -1 : 1) * (ms(a.startsAt) - ms(b.startsAt)) || cmp(a.id, b.id))
+            .map((e) => eventView(e, false)),
+        )
+      ),
+    getPublic: (slug) =>
+      lock(() => {
+        const e = published().find((k) => k.slug === slug);
+        return Promise.resolve(e ? eventView(e, false) : null);
+      }),
+    rsvp: (id, slug, typeId, qty, holder, ip) => lock(() => Promise.resolve(rsvp(id, slug, typeId, qty, holder, ip))),
+    getTicket: (code) =>
+      lock(() => {
+        const t = byCode(code);
+        return Promise.resolve(t ? fresh(t) : null);
+      }),
+    listAdmin: () =>
+      lock(() =>
+        Promise.resolve(
+          [...events.values()]
+            .sort((a, b) => ms(b.startsAt) - ms(a.startsAt) || cmp(a.id, b.id))
+            .map((e) => eventView(e, true)),
+        )
+      ),
+    upsertEvent: (id, input) => lock(() => Promise.resolve(upsertEvent(id, input))),
+    deleteEvent: (id) => lock(() => Promise.resolve(deleteEvent(id))),
+    upsertTicketType: (id, input) => lock(() => Promise.resolve(upsertTicketType(id, input))),
+    deleteTicketType: (id) => lock(() => Promise.resolve(deleteTicketType(id))),
+    issue: (id, typeId, qty, holder) => lock(() => Promise.resolve(issue(id, typeId, qty, holder))),
+    listTickets: (eventId) =>
+      lock(() =>
+        Promise.resolve(
+          events.has(eventId)
+            ? [...tickets.values()]
+              .filter((t) => t.eventId === eventId)
+              .sort((a, b) => cmp(a.createdAt, b.createdAt) || cmp(a.holderName, b.holderName) || cmp(a.id, b.id))
+              .map(fresh)
+            : null,
+        )
+      ),
+    checkIn: (code, at, eventId) => lock(() => Promise.resolve(checkIn(code, at, eventId))),
+    voidTicket: (code) => lock(() => Promise.resolve(voidTicket(code))),
+  };
+}
+
+// --- Community: mirrors 20261031130000_community.sql ------------------------------------------------------------
+
+/** Most sign-ups per client address in a rolling hour. */
+const SIGNUPS_PER_IP = 5;
+
+type StoredSubscriber = Subscriber & { consentText: string };
+
+/**
+ * In-memory gallery and mailing list that mirror the functions in 20261031130000_community.sql: the same results,
+ * reasons and rules. It has its own lock (not the shared one): `eventExists` reads the events store, which takes
+ * the shared lock, so sharing it would deadlock. `eventExists` stands in for the foreign key to events (a link to an event that is gone reads
+ * as no link, like on delete set null). `now` is the clock (milliseconds). The sign-up limit keys on the address
+ * itself (SQL keeps a salted hash).
+ */
+export function memoryCommunity(
+  lock: Lock = createLock(),
+  now: () => number = Date.now,
+  eventExists: (id: string) => Promise<boolean> = () => Promise.resolve(false),
+): CommunityStore {
+  const gallery = new Map<string, AdminGalleryItem>();
+  const subscribers = new Map<string, StoredSubscriber>();
+  const log = new Map<string, number[]>();
+  const iso = () => new Date(now()).toISOString();
+  // created_at ties (same millisecond) keep insertion order the way a serial clock would: a later row is "newer".
+  let seq = 0;
+  const order = new Map<string, number>();
+
+  const sortedGallery = async (activeOnly: boolean): Promise<AdminGalleryItem[]> => {
+    const items = [...gallery.values()]
+      .filter((g) => !activeOnly || g.active)
+      .sort((a, b) => a.sort - b.sort || (order.get(b.id) ?? 0) - (order.get(a.id) ?? 0));
+    return await Promise.all(
+      items.map(async (g) => ({ ...g, eventId: g.eventId && (await eventExists(g.eventId)) ? g.eventId : null })),
+    );
+  };
+
+  const view = (s: StoredSubscriber): Subscriber => {
+    const { consentText: _text, ...rest } = s;
+    return { ...rest };
+  };
+
+  return {
+    listGalleryPublic: () =>
+      lock(async () =>
+        (await sortedGallery(true)).map(({ id, image, caption, eventId }) => ({ id, image, caption, eventId }))
+      ),
+    listGalleryAdmin: () => lock(() => sortedGallery(false)),
+    upsertGalleryItem: (id: string, input: GalleryInput) =>
+      lock(async (): Promise<UpsertGalleryResult> => {
+        const ex = gallery.get(id);
+        let eventId = ex?.eventId ?? null;
+        if (input.eventId !== undefined) {
+          if (input.eventId !== null && !(await eventExists(input.eventId))) return { ok: false, reason: 'event_not_found' };
+          eventId = input.eventId;
+        }
+        if (!ex) {
+          if (!input.image) return { ok: false, reason: 'missing_fields' };
+          const item: AdminGalleryItem = {
+            id,
+            image: input.image,
+            caption: input.caption ?? '',
+            eventId,
+            sort: input.sort ?? 0,
+            active: input.active ?? true,
+            createdAt: iso(),
+          };
+          gallery.set(id, item);
+          order.set(id, ++seq);
+          return { ok: true, created: true, item };
+        }
+        const item: AdminGalleryItem = {
+          ...ex,
+          image: input.image || ex.image,
+          caption: input.caption ?? ex.caption,
+          eventId,
+          sort: input.sort ?? ex.sort,
+          active: input.active ?? ex.active,
+        };
+        gallery.set(id, item);
+        return { ok: true, created: false, item };
+      }),
+    deleteGalleryItem: (id: string) => lock(() => Promise.resolve(gallery.delete(id))),
+    subscribe: (input, consentText, ip) =>
+      lock((): Promise<Awaited<ReturnType<CommunityStore['subscribe']>>> => {
+        if (ip) {
+          const recent = (log.get(ip) ?? []).filter((t) => t > now() - HOUR_MS);
+          if (recent.length >= SIGNUPS_PER_IP) {
+            log.set(ip, recent);
+            return Promise.resolve({ ok: false as const, reason: 'rate_limited' as const });
+          }
+          log.set(ip, [...recent, now()]);
+        }
+        const pn = input.phone ? normalisePhone(input.phone) : null;
+        const email = input.email?.toLowerCase();
+        const all = [...subscribers.values()];
+        const byPhone = pn ? all.find((s) => s.phone && normalisePhone(s.phone) === pn) : undefined;
+        const byEmail = email ? all.find((s) => s.email && s.email.toLowerCase() === email) : undefined;
+        const ex = byPhone ?? byEmail;
+        if (!ex) {
+          const id = crypto.randomUUID();
+          subscribers.set(id, {
+            id,
+            name: input.name ?? null,
+            phone: input.phone ?? null,
+            email: input.email ?? null,
+            source: input.source,
+            consentAt: iso(),
+            unsubscribedAt: null,
+            createdAt: iso(),
+            consentText,
+          });
+          order.set(id, ++seq);
+        } else {
+          ex.name = input.name ?? ex.name;
+          if (!ex.phone && !byPhone) ex.phone = input.phone ?? null;
+          if (!ex.email && !byEmail) ex.email = input.email ?? null;
+          ex.consentText = consentText;
+          ex.consentAt = iso();
+          ex.unsubscribedAt = null;
+        }
+        return Promise.resolve({ ok: true as const });
+      }),
+    listSubscribers: () =>
+      lock(() =>
+        Promise.resolve(
+          [...subscribers.values()]
+            .sort((a, b) => (order.get(b.id) ?? 0) - (order.get(a.id) ?? 0))
+            .map(view),
+        )
+      ),
+    unsubscribe: (id) =>
+      lock(() => {
+        const s = subscribers.get(id);
+        if (!s) return Promise.resolve(null);
+        s.unsubscribedAt ??= iso();
+        return Promise.resolve(view(s));
+      }),
+  };
+}
+
+/** Dev only: two sample gallery photos (placeholder images) so /community has something to show. Never called by
+ *  tests or by index.tsx: live data is never seeded. */
+export async function seedSampleGallery(community: CommunityStore): Promise<void> {
+  await community.upsertGalleryItem(crypto.randomUUID(), {
+    image: 'https://picsum.photos/seed/4nguru-gallery-1/800/800',
+    caption: 'Sample photo for local development',
+    sort: 1,
+  });
+  await community.upsertGalleryItem(crypto.randomUUID(), {
+    image: 'https://picsum.photos/seed/4nguru-gallery-2/800/800',
+    caption: 'Another sample photo',
+    sort: 2,
+  });
+}
+
+/** One published sample event with a free and a paid ticket type, for `deno task dev` only. Never called by tests
+ *  or by index.tsx: live data is never seeded. */
+export async function seedSampleEvent(events: EventStore): Promise<void> {
+  const eventId = crypto.randomUUID();
+  const startsAt = new Date(Date.now() + 14 * DAY_MS);
+  startsAt.setUTCHours(16, 0, 0, 0);
+  await events.upsertEvent(eventId, {
+    title: 'Sample Sunday Market',
+    description: 'A sample event for local development. Free RSVP tickets and a paid table.',
+    startsAt: startsAt.toISOString(),
+    endsAt: new Date(startsAt.getTime() + 5 * HOUR_MS).toISOString(),
+    venue: 'The Yard',
+    city: 'Johannesburg',
+    status: 'published',
+  });
+  await events.upsertTicketType(crypto.randomUUID(), { eventId, name: 'Free RSVP', price: 0, capacity: 50, sort: 1 });
+  await events.upsertTicketType(crypto.randomUUID(), { eventId, name: 'VIP table', price: 250, capacity: 10, sort: 2 });
+}
+
 /** Empty in-memory deps. Pass `seed: true` to add the sample categories and products. */
 export async function createMemoryDeps(
   isAdmin: Deps['isAdmin'],
@@ -656,12 +1280,17 @@ export async function createMemoryDeps(
 ): Promise<Deps & { orders: MemoryOrderStore }> {
   const db = createMemoryDb();
   const lock = createLock();
+  const events = memoryEvents(lock, now);
   const deps: Deps & { orders: MemoryOrderStore } = {
     products: memoryProducts(db, lock),
     categories: memoryCategories(db, lock),
     deliveryOptions: memoryDeliveryOptions(db),
     orders: memoryOrders(db, lock, now),
+    events,
+    community: memoryCommunity(createLock(), now, async (id) => (await events.listAdmin()).some((e) => e.id === id)),
     payments,
+    mailer: null,
+    siteUrl: null,
     isAdmin,
     uploadImage: () => Promise.resolve(`https://picsum.photos/seed/${crypto.randomUUID()}/800/800`),
   };
@@ -677,6 +1306,10 @@ if (import.meta.main) {
     true,
     createFakeProvider(crypto.randomUUID()),
   );
+  // Dev only: one published sample event. Tests and production never seed events.
+  await seedSampleEvent(deps.events);
+  // Dev only: two sample gallery photos.
+  await seedSampleGallery(deps.community);
   // What pg_cron does in production: every five minutes, expire the orders that waited too long.
   setInterval(() => void deps.orders.expireDue(), 5 * 60 * 1000);
   Deno.serve({ port: 8787 }, createApp(deps).fetch);

@@ -1,8 +1,9 @@
 // Page metadata for link previews (WhatsApp, Instagram) and the browser tab.
 // Pure functions, safe on the server and the client. A route's `meta` replaces its parents',
 // so every page builds the full set of tags here.
-import type { Product } from "../api/types";
+import type { Product, PublicEvent } from "../api/types";
 import { shop } from "../config/shop";
+import { formatEventDate } from "../utils/eventTime";
 
 export const SITE_NAME = "4Nguru";
 export const SITE_TITLE = "4Nguru The Brand Online";
@@ -130,6 +131,29 @@ export function productMeta(origin: string, product: Product): MetaDescriptor[] 
       { property: "product:price:amount", content: product.price.toFixed(2) },
       { property: "product:price:currency", content: "ZAR" },
     ],
+  });
+}
+
+export function eventPath(slug: string): string {
+  return `/event/${encodeURIComponent(slug)}`;
+}
+
+/** Head for an event page: the title, "date at venue, city" plus the description, and the event image. */
+export function eventMeta(origin: string, event: PublicEvent): MetaDescriptor[] {
+  const path = eventPath(event.slug);
+  const where = [event.venue, event.city].filter(Boolean).join(", ");
+  const when = [formatEventDate(event.startsAt), where].filter(Boolean).join(" at ");
+  const description = truncate(
+    [when, event.description].filter(Boolean).join(". ") || `${event.title} from 4Nguru The Brand Online.`,
+    160,
+  );
+  return pageMeta({
+    origin,
+    title: `${event.title} | 4Nguru`,
+    description,
+    path,
+    image: event.image || undefined,
+    canonical: path,
   });
 }
 

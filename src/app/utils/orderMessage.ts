@@ -4,7 +4,8 @@ const DELIVERY_LABELS: Record<string, string> = { door: 'Door delivery', locker:
 
 export const deliveryLabel = (method: string): string => DELIVERY_LABELS[method] ?? method
 
-export function buildOrderMessage(order: Order): string {
+/** `orderUrl`, when given, is added as a link to the order's status page. */
+export function buildOrderMessage(order: Order, orderUrl?: string): string {
   let message = `Hi! I've placed order ${order.ref}.\n`;
   message += `Name: ${order.customer.name}\n\n`;
 
@@ -30,5 +31,6 @@ export function buildOrderMessage(order: Order): string {
 
   message += `Total: R${order.total.toFixed(2)}`;
   if (order.customer.note) message += `\n\nNote: ${order.customer.note}`;
+  if (orderUrl) message += `\n\nTrack your order: ${orderUrl}`;
   return message;
 }

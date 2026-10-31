@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
-import { ProductCard } from "./ProductCard";
+import { ProductGrid } from "./ProductGrid";
 import { LoadState } from "./prism";
 
 interface CategoryPageProps {
@@ -34,7 +34,9 @@ export function CategoryPage({ id }: CategoryPageProps) {
             </div>
           ) : (
             <>
-              <p className="micro text-b60 mb-3">Shop / {products.length} {products.length === 1 ? 'item' : 'items'}</p>
+              <p className="micro text-b60 mb-3">
+                <Link to="/shop" className="hover:text-ink">Shop</Link> / {products.length} {products.length === 1 ? 'item' : 'items'}
+              </p>
               <h1 className="display h-sec mb-12">{category.name}</h1>
               {products.length === 0 ? (
                 <div className="border border-b10 p-12 text-center">
@@ -44,11 +46,7 @@ export function CategoryPage({ id }: CategoryPageProps) {
                   </Link>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {products.map(product => (
-                    <ProductCard key={product.id} product={product} />
-                  ))}
-                </div>
+                <ProductGrid products={products} />
               )}
             </>
           )}

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { MessageCircle } from "lucide-react";
 import { toast } from "../lib/toast";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { whatsappLink } from "../config/shop";
-import { listDeliveryOptions, placeOrder } from "../api/orders";
+import { getShopConfig, listDeliveryOptions, payOrder, placeOrder } from "../api/orders";
 import { ApiError } from "../api/client";
-import type { CartQuoteItem, DeliveryInput, DeliveryMethod, DeliveryOption, Order, StockShortfall } from "../api/types";
+import type { CartQuoteItem, DeliveryInput, DeliveryMethod, DeliveryOption, Order, PaymentMethod, StockShortfall } from "../api/types";
 import { buildOrderMessage, deliveryLabel } from "../utils/orderMessage";
 
 interface CheckoutPanelProps {
@@ -20,7 +21,9 @@ interface CheckoutPanelProps {
   itemsTotal?: number;
 }
 
-function validate(name: string, phone: string, note: string): Record<string, string> {
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validate(name: string, phone: string, note: string, email: string, payment: PaymentMethod): Record<string, string> {
   const errors: Record<string, string> = {};
   const n = name.trim();
   const p = phone.trim();
@@ -28,6 +31,9 @@ function validate(name: string, phone: string, note: string): Record<string, str
   if (p.length < 7 || p.length > 20 || !/^[0-9 +\-()]+$/.test(p) || p.replace(/\D/g, "").length < 7) {
     errors.phone = "Enter a valid phone number (at least 7 digits)";
   }
+  const e = email.trim();
+  if (e && (e.length > 254 || !EMAIL_RE.test(e))) errors.email = "Enter a valid email address";
+  else if (!e && payment === "online") errors.email = "Email is needed to pay online";
   if (note.trim().length > 500) errors.note = "Note is too long (500 characters max)";
   return errors;
 }
@@ -69,7 +75,13 @@ function validateDelivery(method: string | null, address: AddressFields, locker:
 export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onOrderChange, itemsTotal }: CheckoutPanelProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
+  const [payment, setPayment] = useState<PaymentMethod>("whatsapp");
+  // Loaded after mount. Until it answers, and when it fails, online payment is off.
+  const [onlinePayments, setOnlinePayments] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+  const navigate = useNavigate();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
@@ -109,6 +121,16 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
     };
   }, []);
 
+  useEffect(() => {
+    let live = true;
+    getShopConfig().then((config) => {
+      if (live) setOnlinePayments(config.onlinePayments);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const loadingOptions = options === null;
   const chosen = options?.find((o) => o.id === method) ?? null;
   const setAddr = (k: keyof AddressFields, v: string) => setAddress((a) => ({ ...a, [k]: v }));
@@ -119,10 +141,25 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
     orderId.current = null;
   }, [itemsKey]);
 
+  // Online: the order is saved, so the cart is cleared before the customer leaves. If the payment
+  // can't be started, the order page offers Pay again.
+  const startPayment = async (placed: Order) => {
+    setRedirecting(true);
+    onCartCleared();
+    try {
+      const { redirectUrl } = await payOrder(placed.id);
+      if (typeof redirectUrl !== "string" || !redirectUrl) throw new Error("No payment link");
+      window.location.assign(redirectUrl);
+    } catch {
+      toast.error("Could not start the payment", { description: "Your order is saved. You can pay from your order page." });
+      navigate(`/order/${encodeURIComponent(placed.id)}`);
+    }
+  };
+
   const handlePlaceOrder = async () => {
     if (inFlight.current || order) return;
     const found = {
-      ...validate(name, phone, note),
+      ...validate(name, phone, note, email, payment),
       ...(options && options.length > 0 ? validateDelivery(chosen ? chosen.id : null, address, locker) : {}),
     };
     setErrors(found);
@@ -157,12 +194,15 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
         customer: {
           name: name.trim(),
           phone: phone.trim(),
+          ...(email.trim() ? { email: email.trim() } : {}),
           ...(trimmedNote ? { note: trimmedNote } : {}),
         },
         ...(delivery ? { delivery } : {}),
+        paymentMethod: payment,
       });
       setOrder(placed);
       onOrderChange(true);
+      if (payment === "online") await startPayment(placed);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         orderId.current = null;
@@ -215,7 +255,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
 
   const handleSendWhatsApp = () => {
     if (!order) return;
-    window.open(whatsappLink(buildOrderMessage(order)), "_blank");
+    window.open(whatsappLink(buildOrderMessage(order, `${window.location.origin}/order/${encodeURIComponent(order.id)}`)), "_blank");
     setAwaitingConfirm(true);
   };
 
@@ -246,7 +286,14 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
             <span>Total</span>
             <span className="font-mono">R{order.total.toFixed(2)}</span>
           </div>
-          <p className="text-b60 text-sm">Now send it to us on WhatsApp so we can confirm.</p>
+          {redirecting ? (
+            <p className="text-b60 text-sm" role="status">Taking you to the payment page…</p>
+          ) : (
+            <>
+              <p className="text-b60 text-sm mb-2">Now send it to us on WhatsApp so we can confirm.</p>
+              <Link to={`/order/${encodeURIComponent(order.id)}`} className="linkr">View order status</Link>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-4 mb-4">
@@ -277,6 +324,20 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               onChange={(e) => setPhone(e.target.value)}
             />
             {errors.phone && <p className="text-sm text-prism">{errors.phone}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="checkout-email">{payment === "online" ? "Email" : "Email (optional)"}</Label>
+            <Input
+              id="checkout-email"
+              type="email"
+              value={email}
+              maxLength={254}
+              autoComplete="email"
+              disabled={submitting}
+              aria-invalid={!!errors.email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            {errors.email && <p className="text-sm text-prism">{errors.email}</p>}
           </div>
           <div className="space-y-1">
             <Label htmlFor="checkout-note">Note (optional)</Label>
@@ -370,39 +431,68 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               {errors.locker && <p className="text-sm text-prism">{errors.locker}</p>}
             </div>
           )}
-          {chosen && typeof itemsTotal === "number" && (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-b60">Delivery</span>
-                <span className="font-mono">{priceLabel(chosen.price)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-b60">Estimated total</span>
-                <span className="font-mono">{money(itemsTotal + chosen.price)}</span>
-              </div>
+          <fieldset className="space-y-2" disabled={submitting}>
+            <legend className="micro text-b60 mb-2">Payment</legend>
+            {(
+              [
+                ["whatsapp", "Pay on WhatsApp", "We confirm on WhatsApp and send payment details."],
+                ...(onlinePayments ? [["online", "Pay online", "Pay by card or bank on a secure page. Email needed."]] : []),
+              ] as [PaymentMethod, string, string][]
+            ).map(([id, label, hint]) => (
+              <label
+                key={id}
+                className={`flex items-start gap-3 border p-3 cursor-pointer r-card ${payment === id ? "border-prism" : "border-b10"}`}
+              >
+                <input
+                  type="radio"
+                  name="checkout-payment"
+                  value={id}
+                  checked={payment === id}
+                  className="accent-prism mt-1"
+                  onChange={() => setPayment(id)}
+                />
+                <span className="min-w-0">
+                  <span className="block">{label}</span>
+                  <span className="block text-sm text-b60">{hint}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          <div className="border-t border-b10 pt-4 space-y-2 text-sm">
+            <p className="micro text-b60">Summary</p>
+            <div className="flex justify-between">
+              <span className="text-b60">Items</span>
+              <span className="font-mono">{typeof itemsTotal === "number" ? money(itemsTotal) : "-"}</span>
             </div>
-          )}
-          {chosen && typeof itemsTotal !== "number" && (
-            <div className="flex justify-between text-sm">
-              <span className="text-b60">Delivery, added to your total</span>
-              <span className="font-mono">{priceLabel(chosen.price)}</span>
+            <div className="flex justify-between">
+              <span className="text-b60">Delivery</span>
+              <span className="font-mono">{chosen ? priceLabel(chosen.price) : "-"}</span>
             </div>
-          )}
+            <div className="flex justify-between">
+              <span className="text-b60">Estimated total</span>
+              <span className="font-mono">
+                {typeof itemsTotal === "number" && (chosen || !(options && options.length > 0))
+                  ? money(itemsTotal + (chosen?.price ?? 0))
+                  : "-"}
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
-      {order ? (
+      {order && redirecting ? null : order ? (
         <button onClick={handleSendWhatsApp} className="cta w-full">
           <MessageCircle className="w-5 h-5" />
           {awaitingConfirm ? "Open WhatsApp again" : "Send on WhatsApp"}
         </button>
       ) : (
         <button onClick={handlePlaceOrder} disabled={blocked || submitting || loadingOptions} className="cta w-full">
-          {submitting ? "Placing order…" : "Place order"}
+          {submitting ? "Placing order…" : payment === "online" ? "Place order and pay" : "Place order"}
         </button>
       )}
 
-      {order && awaitingConfirm && (
+      {order && !redirecting && awaitingConfirm && (
         <div className="border border-b10 p-4 mt-4">
           <p className="micro text-b60 mb-2">Did you send your order?</p>
           <p className="text-b60 text-sm mb-4">
@@ -419,7 +509,9 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
         </div>
       )}
       <p className="micro text-b60 text-center mt-4 text-xs">
-        Your order is saved first, then sent to us on WhatsApp.
+        {payment === "online"
+          ? "Your order is saved first, then you pay on a secure page."
+          : "Your order is saved first, then sent to us on WhatsApp."}
       </p>
     </div>
   );

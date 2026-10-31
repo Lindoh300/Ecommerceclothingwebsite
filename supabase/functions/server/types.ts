@@ -1,3 +1,4 @@
+import type { Mailer } from './mailer.ts';
 import type { PaymentProvider } from './payments.ts';
 
 export interface Variant {
@@ -225,6 +226,51 @@ export type SetStatusResult =
   | { ok: false; reason: 'not_found' }
   | { ok: false; reason: 'bad_transition'; from: OrderStatus; to: string; order: Order };
 
+/** Fields of a tracking update. A missing key keeps the stored value; null or '' clears it. */
+export interface TrackingInput {
+  courier?: string | null;
+  number?: string | null;
+  url?: string | null;
+}
+
+export type SetTrackingResult =
+  | { ok: true; order: Order }
+  | { ok: false; reason: 'not_found' }
+  /** Only packed and shipped orders take tracking. */
+  | { ok: false; reason: 'bad_status'; order: Order };
+
+export type ExtendResult =
+  | { ok: true; order: Order }
+  | { ok: false; reason: 'not_found' }
+  /** Not pending, or no expiry set. */
+  | { ok: false; reason: 'not_extendable'; order: Order };
+
+export type SetPaymentWindowResult =
+  | { ok: true; order: Order }
+  | { ok: false; reason: 'not_found' }
+  /** Not awaiting_payment: nothing was changed. */
+  | { ok: false; reason: 'bad_status'; order: Order };
+
+export type LookupResult =
+  | { ok: true; id: string }
+  | { ok: false; reason: 'not_found' | 'rate_limited' };
+
+/** The only order fields the public tracking page may see. See toPublicOrder in app.ts. */
+export interface PublicOrder {
+  id: string;
+  ref: string;
+  createdAt: string;
+  status: OrderStatus;
+  lines: { name: string; size?: string; color?: string; quantity: number; subtotal: number }[];
+  deliveryFee: number;
+  total: number;
+  /** The method and, for a locker, its name. Never the address. */
+  delivery: { method: string; locker?: string } | null;
+  tracking: OrderTracking | null;
+  expiresAt: string | null;
+  paymentMethod: PaymentMethod | null;
+}
+
 /** What the pay route needs about an order. `paymentUrl` is never part of `Order`. */
 export interface PaymentInfo {
   id: string;
@@ -245,12 +291,25 @@ export interface OrderStore {
   place(id: string, items: OrderItemInput[], customer: Customer, opts?: PlaceOptions): Promise<PlaceOrderResult>;
   /** Newest first. */
   list(): Promise<Order[]>;
+  /** null = not found. */
+  get(id: string): Promise<Order | null>;
   /** null = not found. Already-cancelled returns the order unchanged and does not restore stock again. */
   cancel(id: string): Promise<Order | null>;
   /** Move an order along its lifecycle (see ORDER_TRANSITIONS in dev.ts and set_order_status in SQL).
    *  With `from`, the order must be in that status or nothing changes ('bad_transition').
    *  The requested status already holding is a no-op ({ok:true, changed:false}). */
   setStatus(id: string, status: OrderStatus, from?: OrderStatus): Promise<SetStatusResult>;
+  /** Stores courier, number and url (see TrackingInput) on a packed or shipped order. */
+  setTracking(id: string, tracking: TrackingInput): Promise<SetTrackingResult>;
+  /** A pending order with an expiry: expires_at = greatest(expires_at, now) + 48 hours. */
+  extend(id: string): Promise<ExtendResult>;
+  /** An awaiting_payment order only: expires_at = now + `hours` (set_payment_window). Used for a payment link the
+   *  admin sends, which has to hold its stock longer than a checkout does. Any other status is 'bad_status', unchanged. */
+  setPaymentWindow(id: string, hours: number): Promise<SetPaymentWindowResult>;
+  /** The id of the newest order with this 8-character reference (any case) whose phone has the same last 9
+   *  digits. Every miss is the same 'not_found'. With `ip`, 10 lookups per address in a rolling hour, then
+   *  'rate_limited'; no ip, no limit. */
+  lookup(ref: string, phone: string, ip?: string): Promise<LookupResult>;
   /** null = not found. */
   paymentInfo(id: string): Promise<PaymentInfo | null>;
   /** Stores the provider reference and checkout URL while the order is awaiting_payment. true = stored (or
@@ -304,13 +363,253 @@ export interface DeliveryOptionStore {
   list(): Promise<DeliveryOption[]>;
 }
 
+// --- Events and tickets (20261031120000_events.sql) ------------------------------------------------------------
+
+export type EventStatus = 'draft' | 'published' | 'cancelled';
+
+/** A ticket type as the public sees it. `available` is capacity minus sold, never below 0. */
+export interface PublicTicketType {
+  id: string;
+  name: string;
+  price: number;
+  available: number;
+  /** Active, inside its sale window and the event has not ended. */
+  onSale: boolean;
+}
+
+export interface PublicEvent {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  startsAt: string;
+  endsAt: string | null;
+  venue: string;
+  city: string;
+  image: string;
+  /** Active types only. */
+  ticketTypes: PublicTicketType[];
+}
+
+export interface AdminTicketType extends PublicTicketType {
+  eventId: string;
+  capacity: number;
+  sold: number;
+  saleStartsAt: string | null;
+  saleEndsAt: string | null;
+  active: boolean;
+  sort: number;
+}
+
+export interface AdminEvent extends Omit<PublicEvent, 'ticketTypes'> {
+  status: EventStatus;
+  createdAt: string;
+  ticketTypes: AdminTicketType[];
+}
+
+/** The fields an admin edits. A missing key keeps the stored value; `endsAt: null` clears the end. */
+export interface EventInput {
+  title?: string;
+  description?: string;
+  startsAt?: string;
+  endsAt?: string | null;
+  venue?: string;
+  city?: string;
+  image?: string;
+  status?: EventStatus;
+  /** Only needed to change the link; a new event gets one from its title. */
+  slug?: string;
+}
+
+export interface TicketTypeInput {
+  /** Needed on create, ignored on update. */
+  eventId?: string;
+  name?: string;
+  price?: number;
+  capacity?: number;
+  saleStartsAt?: string | null;
+  saleEndsAt?: string | null;
+  active?: boolean;
+  sort?: number;
+}
+
+export interface TicketHolder {
+  name: string;
+  phone: string;
+  email?: string;
+}
+
+/** The full ticket record, holder details included. The public only ever sees toPublicTicket in events_routes.ts. */
+export interface Ticket {
+  id: string;
+  code: string;
+  groupId: string;
+  eventId: string;
+  eventTitle: string;
+  eventSlug: string;
+  startsAt: string;
+  venue: string;
+  city: string;
+  ticketTypeId: string;
+  ticketTypeName: string;
+  holderName: string;
+  holderPhone: string;
+  holderEmail: string | null;
+  source: 'rsvp' | 'issued';
+  checkedInAt: string | null;
+  voidedAt: string | null;
+  createdAt: string;
+}
+
+/** The only ticket fields the public ticket page may see. */
+export interface PublicTicket {
+  eventTitle: string;
+  eventSlug: string;
+  startsAt: string;
+  venue: string;
+  city: string;
+  ticketTypeName: string;
+  /** The first word of the holder's name. Never the full name, phone or email. */
+  holderFirstName: string;
+  status: 'valid' | 'used' | 'void';
+  checkedInAt: string | null;
+}
+
+export type IssueResult =
+  | { ok: true; created: boolean; tickets: Ticket[] }
+  /** The ticket type, or for an RSVP the published event, does not exist. */
+  | { ok: false; reason: 'not_found' | 'id_taken' | 'bad_quantity' | 'paid_type' | 'event_ended' | 'not_on_sale' | 'event_cancelled' | 'rate_limited' }
+  | { ok: false; reason: 'sold_out'; available: number };
+
+export type UpsertEventResult =
+  | { ok: true; created: boolean; event: AdminEvent }
+  | { ok: false; reason: 'slug_taken' | 'bad_dates' | 'missing_fields' };
+
+export type UpsertTicketTypeResult =
+  | { ok: true; created: boolean; ticketType: AdminTicketType }
+  | { ok: false; reason: 'event_not_found' | 'missing_fields' | 'bad_dates' }
+  | { ok: false; reason: 'capacity_below_sold'; sold: number };
+
+export type DeleteEventResult = { ok: true } | { ok: false; reason: 'not_found' | 'has_tickets' };
+
+export type CheckInResult =
+  | { result: 'ok' | 'already' | 'void' | 'wrong_event'; ticket: Ticket; checkedInAt: string | null }
+  | { result: 'not_found' };
+
+export type VoidResult =
+  | { ok: true; changed: boolean; ticket: Ticket }
+  | { ok: false; reason: 'not_found' }
+  /** A checked-in ticket cannot be voided. */
+  | { ok: false; reason: 'used'; ticket: Ticket };
+
+export interface EventStore {
+  /** Published events that have not ended, soonest first; with `past`, the ended ones, newest first. */
+  listPublic(past?: boolean): Promise<PublicEvent[]>;
+  /** A published event, else null (draft, cancelled and unknown are the same). */
+  getPublic(slug: string): Promise<PublicEvent | null>;
+  /** Free tickets (1 to 4) for a published event that has not ended. `id` is the group id: a retried id returns the
+   *  same tickets and takes no capacity. With `ip`, 5 RSVPs per address in a rolling hour; no ip, no limit. */
+  rsvp(id: string, slug: string, ticketTypeId: string, quantity: number, holder: TicketHolder, ip?: string): Promise<IssueResult>;
+  /** The full record of one ticket, else null. */
+  getTicket(code: string): Promise<Ticket | null>;
+  /** Every event, any status, newest start first. */
+  listAdmin(): Promise<AdminEvent[]>;
+  upsertEvent(id: string, input: EventInput): Promise<UpsertEventResult>;
+  deleteEvent(id: string): Promise<DeleteEventResult>;
+  upsertTicketType(id: string, input: TicketTypeInput): Promise<UpsertTicketTypeResult>;
+  /** 'has_tickets' when sold > 0 or any ticket (even a void one) points at the type. */
+  deleteTicketType(id: string): Promise<DeleteEventResult>;
+  /** The owner's tickets (1 to 20) for a paid or free type; same capacity lock and idempotency. */
+  issue(id: string, ticketTypeId: string, quantity: number, holder: TicketHolder): Promise<IssueResult>;
+  /** null = no such event. */
+  listTickets(eventId: string): Promise<Ticket[] | null>;
+  /** First call wins. `at` is an offline scan time, kept only if within the past 24 hours and not in the future.
+   *  With `eventId`, a ticket of another event is 'wrong_event' and nothing is written. */
+  checkIn(code: string, at?: string, eventId?: string): Promise<CheckInResult>;
+  /** Returns the seat once. */
+  voidTicket(code: string): Promise<VoidResult>;
+}
+
 export interface Deps {
   products: ProductStore;
   deliveryOptions: DeliveryOptionStore;
   categories: CategoryStore;
   orders: OrderStore;
+  events: EventStore;
+  community: CommunityStore;
   /** null when no payment key is configured: online payment is then off. */
   payments: PaymentProvider | null;
+  /** null when no email key is configured: no order emails are sent. */
+  mailer: Mailer | null;
+  /** The live site address without a trailing slash, for links in emails and the payment return URL. null = unset. */
+  siteUrl: string | null;
   isAdmin(authHeader: string | null): Promise<'ok' | 'unauthenticated' | 'forbidden'>;
   uploadImage(file: File): Promise<string>;
+}
+
+// --- Community: gallery and mailing list (20261031130000_community.sql) -----------------------------------------
+
+export type SubscriberSource = 'community' | 'footer' | 'event';
+
+/** A gallery item as the public sees it. */
+export interface PublicGalleryItem {
+  id: string;
+  image: string;
+  caption: string;
+  eventId: string | null;
+}
+
+export interface AdminGalleryItem extends PublicGalleryItem {
+  sort: number;
+  active: boolean;
+  createdAt: string;
+}
+
+/** A missing key keeps the stored value; `eventId: null` clears the link. A new item needs `image`. */
+export interface GalleryInput {
+  image?: string;
+  caption?: string;
+  eventId?: string | null;
+  sort?: number;
+  active?: boolean;
+}
+
+export type UpsertGalleryResult =
+  | { ok: true; created: boolean; item: AdminGalleryItem }
+  | { ok: false; reason: 'missing_fields' | 'event_not_found' };
+
+/** A subscriber as the owner sees them. The consent wording is kept in the table, not listed. */
+export interface Subscriber {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  source: SubscriberSource;
+  consentAt: string;
+  unsubscribedAt: string | null;
+  createdAt: string;
+}
+
+export interface SubscribeInput {
+  name?: string;
+  phone?: string;
+  email?: string;
+  source: SubscriberSource;
+}
+
+export interface CommunityStore {
+  /** Active items, by sort then newest. */
+  listGalleryPublic(): Promise<PublicGalleryItem[]>;
+  /** Every item, hidden ones too, in the same order. */
+  listGalleryAdmin(): Promise<AdminGalleryItem[]>;
+  upsertGalleryItem(id: string, input: GalleryInput): Promise<UpsertGalleryResult>;
+  /** false = no such item. */
+  deleteGalleryItem(id: string): Promise<boolean>;
+  /** Adds the person, or renews the consent of one already on the list (and clears an opt-out). `consentText` is
+   *  the wording stored with the consent time. `ip` is the client address for the limit of 5 an hour; none, no limit. */
+  subscribe(input: SubscribeInput, consentText: string, ip?: string): Promise<{ ok: true } | { ok: false; reason: 'rate_limited' }>;
+  /** Newest first, opted-out ones too. */
+  listSubscribers(): Promise<Subscriber[]>;
+  /** Opts out; a second call keeps the first time. null = no such subscriber. */
+  unsubscribe(id: string): Promise<Subscriber | null>;
 }

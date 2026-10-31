@@ -5,8 +5,11 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { ApiError } from "../api/client";
-import { deleteCategory, saveCategory } from "../api/categories";
+import { deleteCategory, listCategories, saveCategory } from "../api/categories";
 import type { Category } from "../api/types";
+import { loadCategories } from "../hooks/useCategories";
+import { useAdminList } from "../hooks/useAdminList";
+import type { AdminSectionProps } from "./adminSections";
 
 // "Summer Tops!" -> "summer-tops". Matches the server's id rule (a-z, 0-9, hyphens, up to 40).
 export const categoryIdFromName = (name: string): string =>
@@ -285,5 +288,23 @@ export function AdminCategories({ categories, loading, error, onChanged, onApiEr
         )}
       </div>
     </div>
+  );
+}
+
+/** The Categories section: loads every category (inactive ones too) and reloads the shop's cache after a change. */
+export function AdminCategoriesSection({ onApiError }: AdminSectionProps) {
+  const categories = useAdminList(() => listCategories(true), onApiError);
+  const reload = async () => {
+    await categories.reload();
+    await loadCategories(true).catch(() => {});
+  };
+  return (
+    <AdminCategories
+      categories={categories.data}
+      loading={categories.loading}
+      error={categories.error}
+      onChanged={reload}
+      onApiError={onApiError}
+    />
   );
 }

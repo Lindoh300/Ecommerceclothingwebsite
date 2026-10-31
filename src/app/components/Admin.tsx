@@ -1,20 +1,38 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import type { Session } from "@supabase/supabase-js";
-import { Plus, Edit, Trash2, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { toast } from "../lib/toast";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { ApiError } from "../api/client";
-import { deleteProduct, listAllProducts } from "../api/products";
-import { listCategories } from "../api/categories";
-import type { Category, Product } from "../api/types";
-import { loadProducts } from "../hooks/useProducts";
-import { loadCategories } from "../hooks/useCategories";
+import { AdminDashboard } from "./AdminDashboard";
 import { AdminOrders } from "./AdminOrders";
-import { AdminCategories } from "./AdminCategories";
-import { AdminProductForm } from "./AdminProductForm";
+import { AdminNewOrder } from "./AdminNewOrder";
+import { AdminProducts } from "./AdminProducts";
+import { AdminCategoriesSection } from "./AdminCategories";
+import { AdminEvents } from "./AdminEvents";
+import { AdminDoor } from "./AdminDoor";
+import { AdminCommunity } from "./AdminCommunity";
+import { SECTION_PARAM, sectionHref, type AdminSection } from "./adminSections";
+
+/**
+ * The admin sections, in nav order. To add one, import its component and add an entry here: the nav, the
+ * `?section=` link and the page all come from this list. The first entry is the default. A section component
+ * takes `AdminSectionProps` (see adminSections.ts).
+ */
+export const ADMIN_SECTIONS: AdminSection[] = [
+  { id: "dashboard", label: "Dashboard", Component: AdminDashboard },
+  { id: "orders", label: "Orders", Component: AdminOrders },
+  { id: "new-order", label: "New order", Component: AdminNewOrder },
+  { id: "products", label: "Products", Component: AdminProducts },
+  { id: "categories", label: "Categories", Component: AdminCategoriesSection },
+  { id: "events", label: "Events", Component: AdminEvents },
+  { id: "door", label: "Door", Component: AdminDoor },
+  { id: "community", label: "Community", Component: AdminCommunity },
+];
 
 // Local dev server: no Supabase, but an API base. Writes use the dev-admin token.
 const devMode = !isSupabaseConfigured && !!import.meta.env.VITE_API_BASE;
@@ -175,16 +193,14 @@ interface AdminPanelProps {
 }
 
 function AdminPanel({ email, onSignOut }: AdminPanelProps) {
-  // Admin lists include inactive products and categories, so they are kept apart from the shop's cache.
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [categoriesError, setCategoriesError] = useState<string | null>(null);
-  // null = form closed, "new" = adding, otherwise the product being edited.
-  const [formFor, setFormFor] = useState<Product | "new" | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [params] = useSearchParams();
+  const current = ADMIN_SECTIONS.find((s) => s.id === params.get(SECTION_PARAM)) ?? ADMIN_SECTIONS[0];
+  const activeTab = useRef<HTMLAnchorElement>(null);
+
+  // On a phone the tab row scrolls on its own: keep the current tab in view after a reload or a link.
+  useEffect(() => {
+    activeTab.current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [current.id]);
 
   const handleApiError = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401 && onSignOut) {
@@ -197,79 +213,9 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
     }
   };
 
-  // Returns the fresh list, or null if it could not be loaded.
-  const refreshProducts = useCallback(async (): Promise<Product[] | null> => {
-    setLoading(true);
-    setError(null);
-    try {
-      const list = await listAllProducts();
-      setProducts(list);
-      return list;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const refreshCategories = useCallback(async () => {
-    setCategoriesLoading(true);
-    setCategoriesError(null);
-    try {
-      setCategories(await listCategories(true));
-    } catch (err) {
-      setCategoriesError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setCategoriesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshProducts().catch(() => {});
-    refreshCategories().catch(() => {});
-  }, [refreshProducts, refreshCategories]);
-
-  // After a product change: the admin list and the shop's cache both reload.
-  const reloadProducts = async () => {
-    const list = await refreshProducts();
-    await loadProducts(true).catch(() => {});
-    if (!list) throw new Error("Couldn't reload products");
-  };
-
-  const reloadCategories = async () => {
-    await refreshCategories();
-    await loadCategories(true).catch(() => {});
-  };
-
-  const handleEdit = async (product: Product) => {
-    // Open with fresh stock: an order may have come in since the list was loaded.
-    const list = await refreshProducts();
-    setFormFor(list?.find((p) => p.id === product.id) ?? product);
-  };
-
-  const handleDelete = async (id: string, name: string) => {
-    if (busy) return;
-    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
-    setBusy(true);
-    try {
-      await deleteProduct(id);
-      await reloadProducts();
-      if (typeof formFor === "object" && formFor?.id === id) setFormFor(null);
-      toast.success(`Deleted ${name}`);
-    } catch (err) {
-      handleApiError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const categoryName = (id: string) => categories.find((c) => c.id === id)?.name ?? id;
-  const editing = typeof formFor === "object" ? formFor : null;
-
   return (
     <div className="min-h-screen bg-paper">
-      <div className="max-w-[1968px] mx-auto px-6 py-16">
+      <div className="max-w-[1968px] mx-auto px-4 md:px-6 py-8 md:py-16">
         {devMode && (
           <div className="border border-b10 px-4 py-3 mb-8 font-mono text-sm text-b60">
             Local dev mode: writes use the dev-admin token
@@ -277,126 +223,41 @@ function AdminPanel({ email, onSignOut }: AdminPanelProps) {
         )}
         {onSignOut && (
           <div className="flex flex-wrap justify-end items-center gap-4 mb-8">
-            <span className="font-mono text-sm text-ink">{email}</span>
+            <span className="font-mono text-sm text-ink break-all">{email}</span>
             <Button onClick={onSignOut} variant="outline">
               Sign out
             </Button>
           </div>
         )}
-        <div className="flex flex-wrap justify-between items-end gap-6 pb-12 mb-16 border-b border-b10">
-          <div>
-            <p className="micro text-b60 mb-6">Admin</p>
-            <h1 className="display h-sec">Admin Panel</h1>
+        <div className="pb-8 md:pb-12 mb-6 border-b border-b10">
+          <p className="micro text-b60 mb-6">Admin</p>
+          <h1 className="display h-sec">Admin Panel</h1>
+        </div>
+
+        {/* The tab row scrolls sideways inside its own box, so the page itself never does. */}
+        <nav aria-label="Admin sections" className="mb-8 md:mb-12">
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {ADMIN_SECTIONS.map((s) => {
+              const isCurrent = s.id === current.id;
+              return (
+                <Link
+                  key={s.id}
+                  to={sectionHref(s.id)}
+                  ref={isCurrent ? activeTab : undefined}
+                  aria-current={isCurrent ? "page" : undefined}
+                  className={`micro shrink-0 whitespace-nowrap border r-card px-4 min-h-11 inline-flex items-center transition-colors ${
+                    isCurrent ? "bg-ink text-paper border-ink" : "border-b10 text-ink hover:border-ink"
+                  }`}
+                >
+                  {s.label}
+                </Link>
+              );
+            })}
           </div>
-          <div className="flex gap-2">
-            <Button onClick={() => setFormFor("new")} disabled={formFor !== null}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Product
-            </Button>
-          </div>
-        </div>
+        </nav>
 
-        {/* Add/Edit Form. The key gives each product its own form state. */}
-        {formFor !== null && (
-          <AdminProductForm
-            key={editing ? editing.id : "new"}
-            product={editing}
-            categories={categories}
-            categoriesError={categoriesError}
-            onRetryCategories={() => refreshCategories().catch(() => {})}
-            onReload={reloadProducts}
-            onClose={() => setFormFor(null)}
-            onApiError={handleApiError}
-          />
-        )}
-
-        {/* Products List */}
-        <div className="border border-b10 r-card overflow-x-auto">
-          {loading && products.length === 0 && (
-            <p className="px-6 py-4 micro text-b60">Loading products…</p>
-          )}
-          {error && (
-            <div className="px-6 py-4 flex flex-wrap items-center gap-4">
-              <p className="text-b60">Couldn't load products: {error}</p>
-              <Button variant="outline" onClick={() => refreshProducts().catch(() => {})}>
-                Retry
-              </Button>
-            </div>
-          )}
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="border-b border-b10">
-                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Product</th>
-                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Category</th>
-                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Price</th>
-                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Stock</th>
-                <th className="px-6 py-4 font-normal micro text-b60 whitespace-nowrap">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-b10">
-              {products.map((product) => (
-                <tr key={product.id} className={product.active ? "" : "bg-b5"}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <img
-                        src={product.image}
-                        alt={product.name}
-                        className="w-10 h-10 object-cover border border-b10 bg-b5"
-                        onLoad={(e) => {
-                          e.currentTarget.style.visibility = "visible";
-                        }}
-                        onError={(e) => {
-                          e.currentTarget.style.visibility = "hidden";
-                        }}
-                      />
-                      <div className={`ml-4 ${product.active ? "text-ink" : "text-b60"}`}>
-                        <div>{product.name}</div>
-                        {!product.active && <div className="micro text-prism">Inactive</div>}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap micro text-b60">{categoryName(product.category)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">R{product.price}</td>
-                  <td className="px-6 py-4 whitespace-nowrap font-mono text-ink">{product.stock}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleEdit(product).catch(() => {})}
-                        disabled={formFor !== null}
-                        aria-label={`Edit ${product.name}`}
-                        className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
-                      >
-                        <Edit className="w-6 h-6" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(product.id, product.name)}
-                        disabled={busy}
-                        aria-label={`Delete ${product.name}`}
-                        className="p-1 text-ink hover:text-prism transition-colors disabled:opacity-50"
-                      >
-                        <Trash2 className="w-6 h-6" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-16">
-          <AdminCategories
-            categories={categories}
-            loading={categoriesLoading}
-            error={categoriesError}
-            onChanged={reloadCategories}
-            onApiError={handleApiError}
-          />
-        </div>
-
-        <div className="mt-16">
-          <AdminOrders onApiError={handleApiError} />
-        </div>
+        {/* The key gives each section its own state, and loads its data afresh when it opens. */}
+        <current.Component key={current.id} onApiError={handleApiError} />
       </div>
     </div>
   );

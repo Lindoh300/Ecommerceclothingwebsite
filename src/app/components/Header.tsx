@@ -35,7 +35,10 @@ export function Header() {
   // If categories fail to load the nav still renders, with just About.
   const { categories: managed } = useCategories();
   const categories = [
+    { name: 'Shop', path: '/shop' },
     ...managed.map((c) => ({ name: c.name, path: categoryPath(c.id) })),
+    { name: 'Events', path: '/events' },
+    { name: 'Community', path: '/community' },
     { name: 'About', path: '/about' },
   ];
 

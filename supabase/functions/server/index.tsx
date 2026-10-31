@@ -1,23 +1,43 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2.49.8';
 import { createApp } from './app.ts';
+import { loadMailer } from './mailer.ts';
 import { loadPaymentProvider } from './payments.ts';
 import type {
   Category,
+  AdminEvent,
+  AdminGalleryItem,
+  CommunityStore,
   CategoryStore,
+  CheckInResult,
   CreateProductResult,
   DeleteCategoryResult,
   DeliveryOption,
+  DeleteEventResult,
   DeliveryOptionStore,
   Deps,
+  EventStore,
+  PublicGalleryItem,
+  Subscriber,
+  UpsertGalleryResult,
+  ExtendResult,
+  LookupResult,
+  IssueResult,
   Order,
   OrderStore,
   PaymentInfo,
   PlaceOrderResult,
   Product,
   ProductStore,
+  PublicEvent,
   RecordPaymentResult,
+  SetPaymentWindowResult,
   SetStatusResult,
+  SetTrackingResult,
+  Ticket,
   UpdateProductResult,
+  UpsertEventResult,
+  UpsertTicketTypeResult,
+  VoidResult,
 } from './types.ts';
 
 function requireEnv(name: string): string {
@@ -43,6 +63,10 @@ const client = () => createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABA
 //   20261030120000_payments.sql      online payments (record_payment and friends)
 //   20261030130000_place_order_v3.sql    place_order_v3 and order expiry (expire_due_orders)
 //   20261030140000_order_expiry_cron.sql pg_cron job that runs expire_due_orders
+//   20261031100000_order_fulfilment.sql  cancelled -> refunded, set_order_tracking, extend_order, lookup_order
+//   20261031110000_payment_links.sql     set_payment_window (48-hour hold for a payment link)
+//   20261031120000_events.sql            events, ticket types, tickets (rsvp_tickets, check_in_ticket and friends)
+//   20261031130000_community.sql         gallery items and the mailing list (subscribe and friends)
 // The kv table is not used. Orders and stock changes lock the variant rows, so
 // stock cannot be oversold. Nothing is seeded here: the migration copies the
 // existing products over.
@@ -95,6 +119,14 @@ const orders: OrderStore = {
   },
   setStatus: (id, status, from) =>
     rpc<SetStatusResult>('set_order_status', { p_id: id, p_status: status, p_from: from ?? null }),
+  async get(id) {
+    return (await rpc<Order | null>('get_order', { p_id: id })) ?? null;
+  },
+  setTracking: (id, tracking) => rpc<SetTrackingResult>('set_order_tracking', { p_id: id, p_tracking: tracking }),
+  extend: (id) => rpc<ExtendResult>('extend_order', { p_id: id }),
+  setPaymentWindow: (id, hours) =>
+    rpc<SetPaymentWindowResult>('set_payment_window', { p_id: id, p_hours: hours }),
+  lookup: (ref, phone, ip) => rpc<LookupResult>('lookup_order', { p_ref: ref, p_phone: phone, p_ip: ip ?? null }),
   async paymentInfo(id) {
     return (await rpc<PaymentInfo | null>('order_payment_info', { p_id: id })) ?? null;
   },
@@ -144,13 +176,74 @@ const deliveryOptions: DeliveryOptionStore = {
   list: () => rpc<DeliveryOption[]>('list_delivery_options', {}),
 };
 
+// Events and tickets. Every function locks the ticket_types row it changes (see the header of the migration), so a
+// type cannot be oversold and a ticket is checked in once.
+const events: EventStore = {
+  listPublic: (past = false) => rpc<PublicEvent[]>('list_events_public', { p_past: past }),
+  async getPublic(slug) {
+    return (await rpc<PublicEvent | null>('get_event_public', { p_slug: slug })) ?? null;
+  },
+  rsvp: (id, slug, ticketTypeId, quantity, holder, ip) =>
+    rpc<IssueResult>('rsvp_tickets', {
+      p_id: id,
+      p_slug: slug,
+      p_type_id: ticketTypeId,
+      p_qty: quantity,
+      p_holder: holder,
+      p_ip: ip ?? null,
+    }),
+  async getTicket(code) {
+    return (await rpc<Ticket | null>('get_ticket', { p_code: code })) ?? null;
+  },
+  listAdmin: () => rpc<AdminEvent[]>('list_events_admin', {}),
+  upsertEvent: (id, input) => rpc<UpsertEventResult>('upsert_event', { p_id: id, p_input: input }),
+  deleteEvent: (id) => rpc<DeleteEventResult>('delete_event', { p_id: id }),
+  upsertTicketType: (id, input) => rpc<UpsertTicketTypeResult>('upsert_ticket_type', { p_id: id, p_input: input }),
+  deleteTicketType: (id) => rpc<DeleteEventResult>('delete_ticket_type', { p_id: id }),
+  issue: (id, ticketTypeId, quantity, holder) =>
+    rpc<IssueResult>('admin_issue_tickets', { p_id: id, p_type_id: ticketTypeId, p_qty: quantity, p_holder: holder }),
+  async listTickets(eventId) {
+    return (await rpc<Ticket[] | null>('list_event_tickets', { p_event: eventId })) ?? null;
+  },
+  checkIn: (code, at, eventId) =>
+    rpc<CheckInResult>('check_in_ticket', { p_code: code, p_at: at ?? null, p_event: eventId ?? null }),
+  voidTicket: (code) => rpc<VoidResult>('void_ticket', { p_code: code }),
+};
+
+// Community: the gallery and the mailing list. `subscribe` takes the address limit and the sign-up in one transaction.
+const community: CommunityStore = {
+  listGalleryPublic: () => rpc<PublicGalleryItem[]>('list_gallery_public', {}),
+  listGalleryAdmin: () => rpc<AdminGalleryItem[]>('list_gallery_admin', {}),
+  upsertGalleryItem: (id, input) => rpc<UpsertGalleryResult>('upsert_gallery_item', { p_id: id, p_input: input }),
+  deleteGalleryItem: (id) => rpc<boolean>('delete_gallery_item', { p_id: id }),
+  subscribe: (input, consentText, ip) =>
+    rpc<{ ok: true } | { ok: false; reason: 'rate_limited' }>('subscribe', {
+      p_name: input.name ?? null,
+      p_phone: input.phone ?? null,
+      p_email: input.email ?? null,
+      p_consent_text: consentText,
+      p_source: input.source,
+      p_ip: ip ?? null,
+    }),
+  listSubscribers: () => rpc<Subscriber[]>('list_subscribers_admin', {}),
+  async unsubscribe(id) {
+    return (await rpc<Subscriber | null>('admin_unsubscribe_subscriber', { p_id: id })) ?? null;
+  },
+};
+
 const deps: Deps = {
   products,
   deliveryOptions,
   categories,
   orders,
+  events,
+  community,
   // null (online payment off) when PAYSTACK_SECRET_KEY is unset or blank. The only read of the key.
-  payments: loadPaymentProvider(Deno.env.get('PAYSTACK_SECRET_KEY'), Deno.env.get('PAYSTACK_CALLBACK_URL')),
+  payments: loadPaymentProvider(Deno.env.get('PAYSTACK_SECRET_KEY')),
+  // null (no order emails) unless both RESEND_API_KEY and EMAIL_FROM are set. The only read of the key.
+  mailer: loadMailer(Deno.env.get('RESEND_API_KEY'), Deno.env.get('EMAIL_FROM')),
+  // The live site address, no trailing slash. Also the payment return page (replaces PAYSTACK_CALLBACK_URL).
+  siteUrl: Deno.env.get('SITE_URL')?.trim().replace(/\/+$/, '') || null,
   async isAdmin(authHeader) {
     const m = authHeader?.match(/^Bearer\s+(.+)$/i);
     if (!m) return 'unauthenticated';

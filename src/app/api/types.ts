@@ -128,6 +128,8 @@ export interface OrderLine {
   color?: string
   quantity: number
   subtotal: number
+  /** The variant's SKU. Missing on orders placed before the catalogue migration. */
+  sku?: string
 }
 
 export type OrderStatus =
@@ -140,6 +142,20 @@ export type OrderStatus =
   | 'delivered'
   | 'expired'
   | 'refunded'
+
+/** Courier, tracking number and tracking link of a packed or shipped order. Each is null when not set. */
+export interface OrderTracking {
+  courier: string | null
+  number: string | null
+  url: string | null
+}
+
+/** What the admin sends for tracking. A missing key keeps the stored value; '' or null clears it. */
+export interface TrackingInput {
+  courier?: string | null
+  number?: string | null
+  url?: string | null
+}
 
 export interface Order {
   id: string
@@ -161,6 +177,25 @@ export interface Order {
   paidAt?: string | null
   /** ISO time the order auto-cancels if unpaid; null when it does not expire. */
   expiresAt?: string | null
+  /** null until the admin adds tracking. */
+  tracking?: OrderTracking | null
+}
+
+/** An order as the public tracking page sees it: no customer details, address or payment fields. */
+export interface PublicOrder {
+  id: string
+  ref: string
+  createdAt: string
+  status: OrderStatus
+  lines: { name: string; size?: string; color?: string; quantity: number; subtotal: number }[]
+  deliveryFee: number
+  /** Includes `deliveryFee`. */
+  total: number
+  /** The method and, for a locker, its name. */
+  delivery: { method: string; locker?: string } | null
+  tracking: OrderTracking | null
+  expiresAt: string | null
+  paymentMethod: 'whatsapp' | 'online' | null
 }
 
 export interface StockShortfall {
@@ -170,4 +205,165 @@ export interface StockShortfall {
   color: string
   requested: number
   available: number
+}
+
+/** Public shop settings from GET /config. */
+export interface ShopConfig {
+  onlinePayments: boolean
+}
+
+export type PaymentMethod = 'whatsapp' | 'online'
+
+// --- Events and tickets ----------------------------------------------------------------------------------------
+
+export interface PublicTicketType {
+  id: string
+  name: string
+  price: number
+  /** Capacity minus sold, never below 0. */
+  available: number
+  onSale: boolean
+}
+
+export interface PublicEvent {
+  id: string
+  slug: string
+  title: string
+  description: string
+  startsAt: string
+  endsAt: string | null
+  venue: string
+  city: string
+  image: string
+  ticketTypes: PublicTicketType[]
+}
+
+export interface TicketHolder {
+  name: string
+  phone: string
+  email?: string
+}
+
+/** Customer-facing view of one ticket. Only the holder's first name. */
+export interface PublicTicket {
+  eventTitle: string
+  eventSlug: string
+  startsAt: string
+  venue: string
+  city: string
+  ticketTypeName: string
+  holderFirstName: string
+  status: 'valid' | 'used' | 'void'
+  checkedInAt: string | null
+}
+
+export type EventStatus = 'draft' | 'published' | 'cancelled'
+
+export interface AdminTicketType extends PublicTicketType {
+  eventId: string
+  capacity: number
+  sold: number
+  saleStartsAt: string | null
+  saleEndsAt: string | null
+  active: boolean
+  sort: number
+}
+
+export interface AdminEvent extends Omit<PublicEvent, 'ticketTypes'> {
+  status: EventStatus
+  createdAt: string
+  ticketTypes: AdminTicketType[]
+}
+
+/** A missing key keeps the stored value; `endsAt: null` clears the end. */
+export interface EventInput {
+  title?: string
+  description?: string
+  startsAt?: string
+  endsAt?: string | null
+  venue?: string
+  city?: string
+  image?: string
+  status?: EventStatus
+}
+
+export interface TicketTypeInput {
+  /** Needed on create. */
+  eventId?: string
+  name?: string
+  price?: number
+  capacity?: number
+  saleStartsAt?: string | null
+  saleEndsAt?: string | null
+  active?: boolean
+  sort?: number
+}
+
+/** The full ticket record, holder details included. Admin only. */
+export interface AdminTicket {
+  id: string
+  code: string
+  groupId: string
+  eventId: string
+  eventTitle: string
+  eventSlug: string
+  startsAt: string
+  venue: string
+  city: string
+  ticketTypeId: string
+  ticketTypeName: string
+  holderName: string
+  holderPhone: string
+  holderEmail: string | null
+  source: 'rsvp' | 'issued'
+  checkedInAt: string | null
+  voidedAt: string | null
+  createdAt: string
+}
+
+export type CheckInResultName = 'ok' | 'already' | 'void' | 'not_found' | 'wrong_event'
+
+export interface CheckInResponse {
+  result: CheckInResultName
+  ticket?: AdminTicket
+  checkedInAt?: string | null
+}
+
+// --- Community: gallery and mailing list ---
+
+export type SubscriberSource = 'community' | 'footer' | 'event'
+
+/** A gallery photo as the public sees it. */
+export interface PublicGalleryItem {
+  id: string
+  image: string
+  caption: string
+  eventId: string | null
+}
+
+export interface AdminGalleryItem extends PublicGalleryItem {
+  sort: number
+  active: boolean
+  createdAt: string
+}
+
+/** A missing key keeps the stored value; `eventId: null` clears the link. A new item needs `image`. */
+export interface GalleryInput {
+  image?: string
+  caption?: string
+  eventId?: string | null
+  sort?: number
+  active?: boolean
+}
+
+/** A mailing-list subscriber, for the owner. */
+export interface Subscriber {
+  id: string
+  name: string | null
+  phone: string | null
+  email: string | null
+  source: SubscriberSource
+  consentAt: string
+  unsubscribedAt: string | null
+  createdAt: string
 }

@@ -1,16 +1,19 @@
 import { assert, assertEquals } from '@std/assert';
-import { clientIp, createApp } from './app.ts';
+import { clientIp, createApp, toPublicOrder } from './app.ts';
 import {
   createLock,
   createMemoryDb,
   createMemoryDeps,
   memoryCategories,
   memoryDeliveryOptions,
+  memoryCommunity,
+  memoryEvents,
   memoryOrders,
   memoryProducts,
   ORDER_TRANSITIONS,
 } from './dev.ts';
 import { createFakeProvider } from './fake_payments.ts';
+import { createFakeMailer, type Mailer } from './mailer.ts';
 import type { PaymentProvider } from './payments.ts';
 import { seedCatalogue } from './seed.ts';
 import type { Category, Deps, Order, OrderStatus, Product } from './types.ts';
@@ -1005,7 +1008,8 @@ async function lifecycle() {
 
 Deno.test('lifecycle: ORDER_TRANSITIONS is exactly the documented table', () => {
   const pairs = ALL_STATUSES.flatMap((f) => ORDER_TRANSITIONS[f].map((t) => `${f}>${t}`)).sort();
-  assertEquals(pairs, ALLOWED.map(([f, t]) => `${f}>${t}`).sort());
+  // cancelled > refunded is listed, but setStatus also needs payment_flag = 'refund_due' for it (tested below).
+  assertEquals(pairs, [...ALLOWED.map(([f, t]) => `${f}>${t}`), 'cancelled>refunded'].sort());
   assertEquals(Object.keys(ORDER_TRANSITIONS).sort(), [...ALL_STATUSES].sort());
 });
 
@@ -1279,8 +1283,12 @@ Deno.test('delivery: an option that is inactive in the store gives 400 Unknown d
     products,
     categories,
     orders,
+    events: memoryEvents(lock),
+    community: memoryCommunity(),
     deliveryOptions: memoryDeliveryOptions(db),
     payments: null,
+    mailer: null,
+    siteUrl: null,
     isAdmin,
     uploadImage: () => Promise.resolve(''),
   });
@@ -1651,4 +1659,891 @@ Deno.test('mark-paid: awaiting_payment, cancelled and expired orders give 409; u
   assertEquals((await w.markPaid(crypto.randomUUID())).status, 404);
   assertEquals((await w.markPaid('not-a-uuid')).status, 404);
   assertEquals(await w.stock(), 100);
+});
+
+// ---------------------------------------------------------------------------
+// Order fulfilment (20261031100000_order_fulfilment.sql): admin status, tracking and extend routes,
+// the public order page and the public lookup.
+// ---------------------------------------------------------------------------
+const ZERO = '00000000-0000-4000-8000-000000000000';
+const HOME_ADDRESS = { line1: '12 Long Street', line2: 'Flat 4', suburb: 'Gardens', city: 'Cape Town', postalCode: '8001' };
+type Timed = Awaited<ReturnType<typeof timed>>;
+
+const adminPost = (w: Timed, path: string, body?: unknown, headers: Record<string, string> = ADMIN) =>
+  w.app.request(`${P}${path}`, { method: 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+const setStatusVia = (w: Timed, id: string, status: unknown, headers?: Record<string, string>) =>
+  adminPost(w, `/orders/${id}/status`, { status }, headers);
+const trackVia = (w: Timed, id: string, body: unknown, headers?: Record<string, string>) =>
+  adminPost(w, `/orders/${id}/tracking`, body, headers);
+const extendVia = (w: Timed, id: string, headers?: Record<string, string>) => adminPost(w, `/orders/${id}/extend`, undefined, headers);
+
+/** A pending WhatsApp order of 2 tees, taken to `status` through the real routes. */
+async function orderAt(w: Timed, status: 'pending' | 'paid' | 'packed' | 'shipped' | 'delivered', extra: Record<string, unknown> = {}) {
+  const o = (await (await w.place(w.orderBody(extra, 2))).json()) as Order;
+  const steps = ['paid', 'packed', 'shipped', 'delivered'].slice(0, ['pending', 'paid', 'packed', 'shipped', 'delivered'].indexOf(status));
+  for (const step of steps) {
+    const r = step === 'paid' ? await w.markPaid(o.id) : await setStatusVia(w, o.id, step);
+    assertEquals(r.status, 200, step);
+  }
+  return o.id;
+}
+
+Deno.test('fulfilment routes: every new admin route needs an admin (401 without a token, 403 for a non-admin)', async () => {
+  const w = await timed();
+  const id = await orderAt(w, 'packed');
+  const none = { 'Content-Type': 'application/json' };
+  const user = { Authorization: 'Bearer user', 'Content-Type': 'application/json' };
+  for (const [path, body] of [
+    [`/orders/${id}/status`, { status: 'shipped' }],
+    [`/orders/${id}/tracking`, { number: 'T1' }],
+    [`/orders/${id}/extend`, undefined],
+    [`/orders/${ZERO}/status`, { status: 'shipped' }],
+    [`/orders/not-a-uuid/extend`, undefined],
+  ] as [string, unknown][]) {
+    assertEquals((await adminPost(w, path, body, none)).status, 401, path);
+    assertEquals((await adminPost(w, path, body, { Authorization: 'Bearer nope' })).status, 401, path);
+    assertEquals((await adminPost(w, path, body, user)).status, 403, path);
+  }
+  const stored = (await w.get(id))!;
+  assertEquals([stored.status, stored.tracking], ['packed', null]);
+});
+
+Deno.test('status route: paid -> packed -> shipped -> delivered -> refunded, each answered with the order, stock untouched', async () => {
+  const w = await timed();
+  const id = await orderAt(w, 'paid');
+  assertEquals(await w.stock(), 98);
+  for (const next of ['packed', 'shipped', 'delivered', 'refunded']) {
+    const r = await setStatusVia(w, id, next);
+    assertEquals(r.status, 200, next);
+    const o = (await r.json()) as Order;
+    assertEquals([o.id, o.status, o.expiresAt], [id, next, null], next);
+    assertEquals((await w.get(id))!.status, next);
+    assertEquals(await w.stock(), 98, next); // moving along, and refunding, never return stock
+  }
+  // Refunded is final.
+  for (const next of ['packed', 'shipped', 'delivered']) {
+    const r = await setStatusVia(w, id, next);
+    assertEquals(r.status, 409, next);
+    assertEquals((await r.json()).status, 'refunded');
+  }
+});
+
+Deno.test('status route: a refund works from paid, packed, shipped, delivered and expired, and returns no stock', async () => {
+  const w = await timed(createFakeProvider(crypto.randomUUID()));
+  for (const at of ['paid', 'packed', 'shipped', 'delivered'] as const) {
+    const id = await orderAt(w, at);
+    const before = await w.stock();
+    const r = await setStatusVia(w, id, 'refunded');
+    assertEquals(r.status, 200, at);
+    assertEquals(((await r.json()) as Order).status, 'refunded', at);
+    assertEquals(await w.stock(), before, at);
+  }
+  // An online order that expired.
+  const online = (await (await w.place(w.orderBody({ paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } }))).json()) as Order;
+  w.advance(31 * MIN);
+  await w.orders.expireDue();
+  const before = await w.stock();
+  assertEquals((await w.get(online.id))!.status, 'expired');
+  assertEquals((await setStatusVia(w, online.id, 'refunded')).status, 200);
+  assertEquals(await w.stock(), before);
+});
+
+Deno.test('status route: a move the table does not allow gives 409 with the current status and changes nothing', async () => {
+  const w = await timed(createFakeProvider(crypto.randomUUID()));
+  const pending = await orderAt(w, 'pending');
+  const paid = await orderAt(w, 'paid');
+  const packed = await orderAt(w, 'packed');
+  const shipped = await orderAt(w, 'shipped');
+  const delivered = await orderAt(w, 'delivered');
+  const cancelled = await orderAt(w, 'pending');
+  await w.orders.cancel(cancelled);
+  const online = (await (await w.place(w.orderBody({ paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } }))).json()) as Order;
+  const stock = await w.stock();
+
+  const cases: [string, string, string][] = [
+    [pending, 'packed', 'pending'], [pending, 'shipped', 'pending'], [pending, 'delivered', 'pending'], [pending, 'refunded', 'pending'],
+    [online.id, 'packed', 'awaiting_payment'], [online.id, 'refunded', 'awaiting_payment'],
+    [paid, 'shipped', 'paid'], [paid, 'delivered', 'paid'],
+    [packed, 'packed', 'packed'], [packed, 'delivered', 'packed'], // a second click on the same button
+    [shipped, 'packed', 'shipped'], [shipped, 'shipped', 'shipped'],
+    [delivered, 'packed', 'delivered'], [delivered, 'shipped', 'delivered'], [delivered, 'delivered', 'delivered'],
+    [cancelled, 'packed', 'cancelled'], [cancelled, 'refunded', 'cancelled'], // no refund_due flag
+  ];
+  for (const [id, to, now] of cases) {
+    const r = await setStatusVia(w, id, to);
+    assertEquals(r.status, 409, `${now} -> ${to}`);
+    const body = await r.json();
+    assertEquals(body.status, now, `${now} -> ${to}`);
+    assert(typeof body.error === 'string' && body.error !== '');
+    assertEquals((await w.get(id))!.status, now);
+  }
+  assertEquals(await w.stock(), stock);
+});
+
+Deno.test('status route: a forward move names the status it comes from, so a stale screen gets 409', async () => {
+  const w = await timed();
+  const id = await orderAt(w, 'paid');
+  assertEquals((await setStatusVia(w, id, 'packed')).status, 200);
+  // Another admin already moved it on; this one still sees "paid" and clicks Mark packed again.
+  assertEquals((await setStatusVia(w, id, 'shipped')).status, 200);
+  const stale = await setStatusVia(w, id, 'packed');
+  assertEquals(stale.status, 409);
+  assertEquals((await stale.json()).status, 'shipped');
+  assertEquals((await w.get(id))!.status, 'shipped');
+});
+
+Deno.test('status route: a cancelled order is refunded only when it is flagged refund_due, which clears the flag', async () => {
+  const w = await timed();
+  const a = await orderAt(w, 'pending');
+  const b = await orderAt(w, 'pending');
+  const c = await orderAt(w, 'pending');
+  for (const id of [a, b, c]) await w.orders.cancel(id);
+  assertEquals(await w.stock(), 100); // cancelling returned it all
+  w.orders.patch(a, { paymentFlag: 'refund_due' });
+  w.orders.patch(b, { paymentFlag: 'amount_mismatch' });
+
+  assertEquals((await setStatusVia(w, b, 'refunded')).status, 409);
+  assertEquals((await setStatusVia(w, c, 'refunded')).status, 409);
+  assertEquals((await w.get(b))!.status, 'cancelled');
+  assertEquals((await w.get(b))!.paymentFlag, 'amount_mismatch');
+
+  const r = await setStatusVia(w, a, 'refunded');
+  assertEquals(r.status, 200);
+  const o = (await r.json()) as Order;
+  assertEquals([o.status, o.paymentFlag], ['refunded', null]);
+  assertEquals((await w.get(a))!.paymentFlag, null);
+  assertEquals(await w.stock(), 100); // a refund does not touch stock
+  // The cancel route still leaves it alone, and a second refund is a no-op, not an error.
+  assertEquals(((await (await adminPost(w, `/orders/${a}/cancel`)).json()) as Order).status, 'refunded');
+  assertEquals((await setStatusVia(w, a, 'refunded')).status, 200);
+  // The other statuses refuse to leave the flag: a paid order flagged and refunded loses a refund_due flag too.
+  const d = await orderAt(w, 'paid');
+  w.orders.patch(d, { paymentFlag: 'refund_due' });
+  assertEquals(((await (await setStatusVia(w, d, 'refunded')).json()) as Order).paymentFlag, null);
+});
+
+Deno.test('status route: refund_due flows in through a late online payment and out through the refund', async () => {
+  const fake = createFakeProvider(crypto.randomUUID());
+  const w = await timed(fake);
+  const o = (await (await w.place(w.orderBody({ paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } }, 2))).json()) as Order;
+  assertEquals(await w.stock(), 98);
+  assertEquals((await w.app.request(`${P}/orders/${o.id}/pay`, { method: 'POST' })).status, 200);
+  assertEquals((await w.orders.cancel(o.id))?.status, 'cancelled');
+  assertEquals(await w.stock(), 100);
+  // The stock is sold or written off, then the customer's payment arrives.
+  assert((await w.deps.products.update('tee', { stock: 0 })).ok);
+  assertEquals(await w.stock(), 0);
+  const late = await w.orders.recordPayment(o.id, Math.round(o.total * 100), 'ZAR');
+  assert(late.ok && late.outcome === 'refund_due');
+  const flagged = (await w.get(o.id))!;
+  assertEquals([flagged.status, flagged.paymentFlag], ['cancelled', 'refund_due']);
+
+  const r = await setStatusVia(w, o.id, 'refunded');
+  assertEquals(r.status, 200);
+  const done = (await r.json()) as Order;
+  assertEquals([done.status, done.paymentFlag], ['refunded', null]);
+  assertEquals(await w.stock(), 0);
+});
+
+Deno.test('status route: invalid statuses give 400, and cancelling stays on the cancel route', async () => {
+  const w = await timed();
+  const id = await orderAt(w, 'paid');
+  const cancelled = await setStatusVia(w, id, 'cancelled');
+  assertEquals(cancelled.status, 400);
+  assert((await cancelled.json()).error.includes('cancel route'));
+  for (const bad of ['bogus', '', 'PACKED', 'paid', 'pending', 'awaiting_payment', 'expired', 'toString', '__proto__', 'constructor', 7, null, true, ['packed'], {}, undefined]) {
+    const r = await setStatusVia(w, id, bad);
+    assertEquals(r.status, 400, JSON.stringify(bad));
+    assert((await r.json()).error);
+  }
+  assertEquals((await adminPost(w, `/orders/${id}/status`, [])).status, 400);
+  assertEquals((await adminPost(w, `/orders/${id}/status`, 'packed')).status, 400);
+  assertEquals((await w.app.request(`${P}/orders/${id}/status`, { method: 'POST', headers: ADMIN, body: '{nope' })).status, 400);
+  assertEquals((await w.app.request(`${P}/orders/${id}/status`, { method: 'POST', headers: ADMIN })).status, 400);
+  assertEquals((await w.get(id))!.status, 'paid');
+  // The 'pay' statuses cannot be reached through this route, so a payment cannot be skipped.
+  const pending = await orderAt(w, 'pending');
+  assertEquals((await setStatusVia(w, pending, 'paid')).status, 400);
+  assertEquals((await w.get(pending))!.status, 'pending');
+});
+
+Deno.test('status route: an unknown or malformed order id gives 404', async () => {
+  const w = await timed();
+  for (const id of [ZERO, crypto.randomUUID(), 'not-a-uuid', '1']) {
+    const r = await setStatusVia(w, id, 'packed');
+    assertEquals(r.status, 404, id);
+    assertEquals(await r.json(), { error: 'Order not found' });
+  }
+  // A well-formed id that is unknown is judged after the body: a bad status is still a 400.
+  assertEquals((await setStatusVia(w, ZERO, 'bogus')).status, 400);
+  assertEquals((await setStatusVia(w, ZERO, 'refunded')).status, 404);
+});
+
+Deno.test('tracking route: stores trimmed courier, number and https link on a packed or shipped order', async () => {
+  const w = await timed();
+  const id = await orderAt(w, 'packed');
+  const r = await trackVia(w, id, { courier: '  The Courier Guy ', number: ' TCG123 ', url: ' https://track.example.com/TCG123 ', extra: 'ignored' });
+  assertEquals(r.status, 200);
+  const o = (await r.json()) as Order;
+  assertEquals(o.tracking, { courier: 'The Courier Guy', number: 'TCG123', url: 'https://track.example.com/TCG123' });
+  assertEquals(o.status, 'packed');
+  assertEquals((await w.get(id))!.tracking, o.tracking);
+
+  // A missing key keeps the value; an empty string or null clears it; all three cleared gives null.
+  assertEquals(((await (await trackVia(w, id, { number: 'TCG999' })).json()) as Order).tracking, {
+    courier: 'The Courier Guy', number: 'TCG999', url: 'https://track.example.com/TCG123',
+  });
+  assertEquals(((await (await trackVia(w, id, { courier: '', url: null })).json()) as Order).tracking, {
+    courier: null, number: 'TCG999', url: null,
+  });
+  assertEquals(((await (await trackVia(w, id, { number: '   ' })).json()) as Order).tracking, null);
+
+  // Still allowed once shipped, and the status is not changed by it.
+  assertEquals((await setStatusVia(w, id, 'shipped')).status, 200);
+  const shipped = (await (await trackVia(w, id, { courier: 'Aramex', url: 'https://aramex.example/1' })).json()) as Order;
+  assertEquals([shipped.status, shipped.tracking?.courier], ['shipped', 'Aramex']);
+  assertEquals((await w.get(id))!.status, 'shipped');
+});
+
+Deno.test('tracking route: other statuses give 409 with the status; unknown and malformed ids give 404', async () => {
+  const w = await timed();
+  const pending = await orderAt(w, 'pending');
+  const paid = await orderAt(w, 'paid');
+  const delivered = await orderAt(w, 'delivered');
+  const cancelled = await orderAt(w, 'pending');
+  await w.orders.cancel(cancelled);
+  const refunded = await orderAt(w, 'paid');
+  await setStatusVia(w, refunded, 'refunded');
+  for (const [id, status] of [[pending, 'pending'], [paid, 'paid'], [delivered, 'delivered'], [cancelled, 'cancelled'], [refunded, 'refunded']]) {
+    const r = await trackVia(w, id, { number: 'T1' });
+    assertEquals(r.status, 409, status);
+    assertEquals((await r.json()).status, status);
+    assertEquals((await w.get(id))!.tracking, null, status);
+  }
+  assertEquals((await trackVia(w, ZERO, { number: 'T1' })).status, 404);
+  assertEquals((await trackVia(w, 'not-a-uuid', { number: 'T1' })).status, 404);
+});
+
+Deno.test('tracking route: field limits (120 characters), https links only, at least one field', async () => {
+  const w = await timed();
+  const id = await orderAt(w, 'packed');
+  const long = (n: number) => 'a'.repeat(n);
+  assertEquals((await trackVia(w, id, { courier: long(120), number: long(120), url: `https://x.example/${long(102)}` })).status, 200);
+  assertEquals((await trackVia(w, id, { courier: long(121) })).status, 400);
+  assertEquals((await trackVia(w, id, { number: long(121) })).status, 400);
+  assertEquals((await trackVia(w, id, { url: `https://x.example/${long(103)}` })).status, 400);
+  assertEquals((await trackVia(w, id, { courier: `  ${long(120)}  ` })).status, 200); // trimmed first
+  for (const url of ['http://track.example/1', 'HTTP://track.example/1', 'javascript:alert(1)', 'ftp://track.example/1', 'data:text/html,hi',
+    '//track.example/1', 'track.example/1', 'https:track.example', 'https://', 'https://exa mple.com', 'mailto:a@b.co', '  http://x.example  ']) {
+    const r = await trackVia(w, id, { url });
+    assertEquals(r.status, 400, url);
+  }
+  assertEquals((await trackVia(w, id, { url: 'HTTPS://Track.Example/1' })).status, 200);
+  for (const bad of [{}, { other: 'x' }, { courier: 5 }, { number: ['1'] }, { url: {} }, { courier: true }, [], 'x', null, 7]) {
+    assertEquals((await trackVia(w, id, bad)).status, 400, JSON.stringify(bad));
+  }
+  assertEquals((await w.app.request(`${P}/orders/${id}/tracking`, { method: 'POST', headers: ADMIN, body: '{nope' })).status, 400);
+  // The last good write is intact.
+  assertEquals((await w.get(id))!.tracking?.url, 'HTTPS://Track.Example/1');
+});
+
+Deno.test('extend route: a pending order gets 48 hours more, from its expiry or from now if that has passed', async () => {
+  const w = await timed();
+  const o = (await (await w.place(w.orderBody())).json()) as Order;
+  const start = Date.parse('2026-06-01T10:00:00.000Z');
+  assertEquals(o.expiresAt, new Date(start + 48 * HOUR).toISOString());
+
+  // Time left: the 48 hours are added to the expiry, and again on a second call.
+  w.advance(10 * HOUR);
+  const r = await extendVia(w, o.id);
+  assertEquals(r.status, 200);
+  const once = (await r.json()) as Order;
+  assertEquals([once.status, once.expiresAt], ['pending', new Date(start + 96 * HOUR).toISOString()]);
+  assertEquals((await w.get(o.id))!.expiresAt, once.expiresAt);
+  assertEquals(((await (await extendVia(w, o.id)).json()) as Order).expiresAt, new Date(start + 144 * HOUR).toISOString());
+  // Stock stays held, and the job leaves it alone at the old expiry.
+  w.advance(40 * HOUR);
+  assertEquals(await w.orders.expireDue(), []);
+  assertEquals(await w.stock(), 99);
+
+  // Time up but the job has not run: 48 hours from now, not from the old expiry.
+  const late = (await (await w.place(w.orderBody())).json()) as Order;
+  w.advance(60 * HOUR); // 12 hours past this order's expiry, the job has not run
+  const nowMs = Date.parse('2026-06-01T10:00:00.000Z') + 110 * HOUR;
+  assertEquals(((await (await extendVia(w, late.id)).json()) as Order).expiresAt, new Date(nowMs + 48 * HOUR).toISOString());
+  assertEquals(await w.orders.expireDue(), []);
+  assertEquals((await w.get(late.id))!.status, 'pending');
+  // Left alone, it still expires at the new time.
+  w.advance(48 * HOUR + 1);
+  assert((await w.orders.expireDue()).includes(late.id));
+  assertEquals((await w.get(late.id))!.status, 'cancelled');
+  // And a cancelled order cannot be extended back.
+  assertEquals((await extendVia(w, late.id)).status, 409);
+});
+
+Deno.test('extend route: anything but a pending order with an expiry gives 409 with the status, 404 for unknown ids', async () => {
+  const w = await timed(createFakeProvider(crypto.randomUUID()));
+  const paid = await orderAt(w, 'paid');
+  const packed = await orderAt(w, 'packed');
+  const cancelled = await orderAt(w, 'pending');
+  await w.orders.cancel(cancelled);
+  const online = (await (await w.place(w.orderBody({ paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } }))).json()) as Order;
+  const noExpiry = await orderAt(w, 'pending');
+  w.orders.patch(noExpiry, { expiresAt: null });
+  const before = new Map<string, string | null | undefined>();
+  for (const [id, status] of [[paid, 'paid'], [packed, 'packed'], [cancelled, 'cancelled'], [online.id, 'awaiting_payment'], [noExpiry, 'pending']]) {
+    before.set(id, (await w.get(id))!.expiresAt);
+    const r = await extendVia(w, id);
+    assertEquals(r.status, 409, status);
+    assertEquals((await r.json()).status, status);
+    assertEquals((await w.get(id))!.expiresAt, before.get(id), status);
+  }
+  w.advance(31 * MIN);
+  await w.orders.expireDue();
+  assertEquals((await extendVia(w, online.id)).status, 409); // now expired
+  assertEquals((await extendVia(w, ZERO)).status, 404);
+  assertEquals((await extendVia(w, 'not-a-uuid')).status, 404);
+});
+
+// --- the public order page ---------------------------------------------------
+const PRIVATE_VALUES = ['Thandi M', '82 123 4567', '0821234567', 'thandi@example.com', 'Leave at gate', '12 Long Street', 'Flat 4', 'Gardens', 'Cape Town', '8001'];
+
+/** An online order with delivery to a door, a note and an email, with a stored payment link and a flag. */
+async function fullOrder(w: Timed) {
+  const body = w.orderBody({
+    paymentMethod: 'online',
+    delivery: { method: 'door', address: HOME_ADDRESS },
+    customer: { ...customer, email: 'thandi@example.com' },
+  }, 2);
+  const o = (await (await w.place(body)).json()) as Order;
+  const pay = await w.app.request(`${P}/orders/${o.id}/pay`, { method: 'POST' });
+  assertEquals(pay.status, 200);
+  const { redirectUrl } = (await pay.json()) as { redirectUrl: string };
+  assert(redirectUrl);
+  return { o, redirectUrl };
+}
+
+Deno.test('public order: only the listed fields, and every private field is absent, one by one', async () => {
+  const fake = createFakeProvider(crypto.randomUUID());
+  const w = await timed(fake);
+  const { o, redirectUrl } = await fullOrder(w);
+  w.orders.patch(o.id, { paymentFlag: 'refund_due', paidAt: '2026-06-01T10:05:00.000Z', tracking: { courier: 'Aramex', number: 'T1', url: 'https://t.example/1' } });
+  const stored = (await w.get(o.id))!;
+  // The admin view does hold the private data, so the test is not vacuous.
+  assertEquals([stored.customer.phone, stored.customer.email, stored.customer.name, stored.customer.note], ['+27 82 123 4567', 'thandi@example.com', 'Thandi M', 'Leave at gate']);
+  assertEquals(stored.delivery?.address, HOME_ADDRESS);
+  assertEquals(stored.paymentFlag, 'refund_due');
+  assert((await w.orders.paymentInfo(o.id))!.paymentUrl);
+
+  const r = await w.app.request(`${P}/orders/${o.id}/public`); // no token at all
+  assertEquals(r.status, 200);
+  assertEquals(r.headers.get('Cache-Control'), 'no-store');
+  const text = await r.text();
+  const pub = JSON.parse(text);
+
+  assertEquals(Object.keys(pub).sort(), [
+    'createdAt', 'delivery', 'deliveryFee', 'expiresAt', 'id', 'lines', 'paymentMethod', 'ref', 'status', 'total', 'tracking',
+  ]);
+  assertEquals(pub.id, o.id);
+  assertEquals(pub.ref, o.ref);
+  assertEquals([pub.status, pub.deliveryFee, pub.total, pub.paymentMethod], ['awaiting_payment', 85, 105, 'online']);
+  assertEquals(pub.delivery, { method: 'door' });
+  assertEquals(pub.tracking, { courier: 'Aramex', number: 'T1', url: 'https://t.example/1' });
+  assertEquals(pub.expiresAt, stored.expiresAt);
+  assertEquals(pub.lines, [{ name: 'Tee', size: 'M', color: 'Black', quantity: 2, subtotal: 20 }]);
+
+  // Field by field, at any depth.
+  const keys = new Set<string>();
+  const walk = (v: unknown) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) {
+        keys.add(k);
+        walk(x);
+      }
+    }
+  };
+  walk(pub);
+  // (A line's own "name" is allowed and checked below; a customer's name is covered by the values check.)
+  for (const forbidden of ['customer', 'phone', 'email', 'note', 'address', 'line1', 'line2', 'suburb', 'city',
+    'postalCode', 'paymentFlag', 'paymentUrl', 'payment_url', 'paymentReference', 'paidAt', 'productId', 'variantId', 'sku', 'price']) {
+    assert(!keys.has(forbidden), `public order has key ${forbidden}`);
+  }
+  assertEquals(pub.lines.flatMap((l: Record<string, unknown>) => Object.keys(l)).filter((k: string) => !['name', 'size', 'color', 'quantity', 'subtotal'].includes(k)), []);
+  assert(!('customer' in pub) && !('phone' in pub) && !('email' in pub) && !('note' in pub));
+  assert(!('address' in pub) && !('address' in pub.delivery) && !('paymentFlag' in pub) && !('paymentUrl' in pub));
+  // And none of the values, anywhere in the text.
+  for (const v of [...PRIVATE_VALUES, redirectUrl, 'refund_due', 'amount_mismatch', stored.lines[0].variantId!, stored.lines[0].sku!]) {
+    assert(!text.includes(v), `public order text contains ${v}`);
+  }
+});
+
+Deno.test('public order: a locker shows its name, collection only the method, no delivery gives null; a plain WhatsApp order has no payment link', async () => {
+  const w = await timed();
+  const locker = (await (await w.place(w.orderBody({ delivery: { method: 'locker', locker: 'Pudo Cape Quarter' } }))).json()) as Order;
+  const collect = (await (await w.place(w.orderBody({ delivery: { method: 'collect' } }))).json()) as Order;
+  const none = (await (await w.place(w.orderBody())).json()) as Order;
+  const get = async (id: string) => (await (await w.app.request(`${P}/orders/${id}/public`)).json());
+  assertEquals((await get(locker.id)).delivery, { method: 'locker', locker: 'Pudo Cape Quarter' });
+  assertEquals((await get(locker.id)).deliveryFee, 55);
+  assertEquals((await get(collect.id)).delivery, { method: 'collect' });
+  const plain = await get(none.id);
+  assertEquals([plain.delivery, plain.tracking, plain.deliveryFee, plain.paymentMethod, plain.status], [null, null, 0, 'whatsapp', 'pending']);
+  assertEquals(plain.expiresAt, none.expiresAt);
+  // The same id in capitals works, as the UUID is the capability.
+  assertEquals((await w.app.request(`${P}/orders/${none.id.toUpperCase()}/public`)).status, 200);
+});
+
+Deno.test('public order: unknown and malformed ids give the same 404, and toPublicOrder drops anything not listed', async () => {
+  const w = await timed();
+  for (const id of [ZERO, crypto.randomUUID(), 'not-a-uuid', '12345678', `${ZERO}x`]) {
+    const r = await w.app.request(`${P}/orders/${id}/public`);
+    assertEquals(r.status, 404, id);
+    assertEquals(await r.json(), { error: 'Order not found' });
+  }
+  const o = (await (await w.place(w.orderBody({ customer: { ...customer, email: 'a@b.co' } }))).json()) as Order;
+  const stored = (await w.get(o.id))!;
+  const polluted = {
+    ...stored,
+    secret: 'x', paymentUrl: 'https://pay.example/1', paymentReference: 'ref', passport: '1',
+    lines: stored.lines.map((l) => ({ ...l, internalCost: 3 })),
+    delivery: { method: 'door', fee: 85, address: HOME_ADDRESS, locker: 'L1', extra: 'x' },
+    tracking: { courier: 'C', number: null, url: null, secret: 'x' },
+  } as unknown as Order;
+  const pub = toPublicOrder(polluted);
+  assertEquals(Object.keys(pub).sort(), ['createdAt', 'delivery', 'deliveryFee', 'expiresAt', 'id', 'lines', 'paymentMethod', 'ref', 'status', 'total', 'tracking']);
+  assertEquals(pub.delivery, { method: 'door', locker: 'L1' });
+  assertEquals(pub.tracking, { courier: 'C', number: null, url: null });
+  assertEquals(Object.keys(pub.lines[0]).sort(), ['color', 'name', 'quantity', 'size', 'subtotal']);
+  assert(!JSON.stringify(pub).includes('secret'));
+  // An order from an older server, without the newer fields, is filled with the empty values.
+  const old = toPublicOrder({ id: 'i', ref: 'R', createdAt: 'c', status: 'pending', lines: [], total: 5, customer: { name: 'N', phone: '1' } });
+  assertEquals(old, { id: 'i', ref: 'R', createdAt: 'c', status: 'pending', lines: [], deliveryFee: 0, total: 5, delivery: null, tracking: null, expiresAt: null, paymentMethod: null });
+});
+
+// --- the public lookup -------------------------------------------------------
+const lookupVia = (w: Timed, body: unknown, headers: Record<string, string> = {}) =>
+  w.app.request(`${P}/orders/lookup`, { method: 'POST', headers: { ...JSON_H, ...headers }, body: JSON.stringify(body) });
+const NO_ORDER = { error: 'No order found' };
+
+Deno.test('lookup: the reference in any case with the phone in either format finds the order id; no token is needed', async () => {
+  const w = await timed();
+  const o = (await (await w.place(w.orderBody())).json()) as Order; // phone +27 82 123 4567
+  assertEquals(o.ref.length, 8);
+  for (const phone of ['0821234567', '+27821234567', '+27 82 123 4567', '27821234567', '082 123 4567', '(082) 123-4567', '821234567']) {
+    for (const ref of [o.ref, o.ref.toLowerCase(), ` ${o.ref.toLowerCase()} `]) {
+      const r = await lookupVia(w, { ref, phone });
+      assertEquals(r.status, 200, `${ref} / ${phone}`);
+      assertEquals(await r.json(), { id: o.id });
+    }
+  }
+  // A phone saved in the local format is found with the international one.
+  const local = (await (await w.place(w.orderBody({ customer: { name: 'Sipho', phone: '0731112222' } }))).json()) as Order;
+  assertEquals(await (await lookupVia(w, { ref: local.ref, phone: '+27731112222' })).json(), { id: local.id });
+  // The id found works on the public page.
+  const page = await w.app.request(`${P}/orders/${o.id}/public`);
+  assertEquals(page.status, 200);
+});
+
+Deno.test('lookup: a wrong ref and a wrong phone give the same 404, and so does every malformed input', async () => {
+  const w = await timed();
+  const o = (await (await w.place(w.orderBody())).json()) as Order;
+  const wrongRef = await lookupVia(w, { ref: o.ref === 'AAAAAAAA' ? 'BBBBBBBB' : 'AAAAAAAA', phone: '0821234567' });
+  const wrongPhone = await lookupVia(w, { ref: o.ref, phone: '0821234568' });
+  const bothWrong = await lookupVia(w, { ref: 'AAAAAAAA', phone: '0000000000' });
+  const wrongRefText = await wrongRef.text();
+  assertEquals([wrongRef.status, wrongPhone.status, bothWrong.status], [404, 404, 404]);
+  assertEquals(JSON.parse(wrongRefText), NO_ORDER);
+  assertEquals(await wrongPhone.text(), wrongRefText);
+  assertEquals(await bothWrong.text(), wrongRefText);
+  assertEquals(wrongRef.headers.get('content-type'), wrongPhone.headers.get('content-type'));
+  for (const [ref, phone] of [['', ''], [o.ref.slice(0, 7), '0821234567'], [`${o.ref}0`, '0821234567'], [o.ref, ''], [o.ref, '1234'], [o.ref, 'abc'],
+    [o.ref, '0731112222'], [o.ref, '1234567'], [o.ref, '21234567']]) {
+    const r = await lookupVia(w, { ref, phone });
+    assertEquals(r.status, 404, `${ref} / ${phone}`);
+    assertEquals(await r.json(), NO_ORDER);
+  }
+  // An unreadable body is not a lookup at all.
+  assertEquals((await lookupVia(w, { ref: o.ref })).status, 400);
+  assertEquals((await lookupVia(w, { ref: 5, phone: 5 })).status, 400);
+  assertEquals((await lookupVia(w, [])).status, 400);
+  assertEquals((await lookupVia(w, { ref: o.ref, phone: '1'.repeat(41) })).status, 400);
+  assertEquals((await w.app.request(`${P}/orders/lookup`, { method: 'POST', headers: JSON_H, body: '{nope' })).status, 400);
+});
+
+Deno.test('lookup: the same ref and phone twice finds the newest; other statuses are found too', async () => {
+  const w = await timed();
+  const o = (await (await w.place(w.orderBody())).json()) as Order;
+  await w.orders.cancel(o.id);
+  assertEquals(await (await lookupVia(w, { ref: o.ref, phone: '0821234567' })).json(), { id: o.id });
+});
+
+Deno.test('lookup: 10 per address per hour, the 11th gets 429 with Retry-After, found or not; other addresses are free', async () => {
+  const w = await timed();
+  const o = (await (await w.place(w.orderBody())).json()) as Order;
+  const ip = w.at('203.0.113.50');
+  for (let i = 0; i < 10; i++) {
+    const r = await lookupVia(w, { ref: o.ref, phone: i % 2 ? '0000000000' : '0821234567' }, ip);
+    assertEquals(r.status, i % 2 ? 404 : 200, `lookup ${i + 1}`);
+  }
+  const eleventh = await lookupVia(w, { ref: o.ref, phone: '0821234567' }, ip);
+  assertEquals(eleventh.status, 429);
+  assertEquals(eleventh.headers.get('Retry-After'), '3600');
+  assert((await eleventh.json()).error);
+  assertEquals((await lookupVia(w, { ref: o.ref, phone: '0821234567' }, ip)).status, 429);
+  // Other addresses, v4 or v6, are independent.
+  assertEquals((await lookupVia(w, { ref: o.ref, phone: '0821234567' }, w.at('203.0.113.51'))).status, 200);
+  assertEquals((await lookupVia(w, { ref: o.ref, phone: '0821234567' }, w.at('2001:db8::5'))).status, 200);
+  // Placing orders is a separate count: the same address can still order.
+  assertEquals((await w.place(w.orderBody(), ip)).status, 201);
+});
+
+Deno.test('lookup: no address, or one that is not an address, is never limited; x-forwarded-for is not read', async () => {
+  const w = await timed();
+  const o = (await (await w.place(w.orderBody())).json()) as Order;
+  const hit = { ref: o.ref, phone: '0821234567' };
+  for (let i = 0; i < 15; i++) assertEquals((await lookupVia(w, hit)).status, 200, `no header ${i}`);
+  for (let i = 0; i < 15; i++) assertEquals((await lookupVia(w, hit, w.at('nope, 1.2.3.4'))).status, 200, `bad header ${i}`);
+  for (let i = 0; i < 15; i++) assertEquals((await lookupVia(w, hit, { 'x-forwarded-for': '198.51.100.7' })).status, 200, `xff ${i}`);
+  // A spoofed x-forwarded-for neither shares nor escapes the real address's count.
+  const spoof = (n: number) => ({ 'x-forwarded-for': `198.51.100.${n}`, ...w.at('203.0.113.60') });
+  for (let i = 0; i < 10; i++) assertEquals((await lookupVia(w, hit, spoof(i))).status, 200);
+  assertEquals((await lookupVia(w, hit, spoof(99))).status, 429);
+});
+
+Deno.test('lookup: the window rolls, and a refused lookup does not extend the wait', async () => {
+  const w = await timed();
+  const o = (await (await w.place(w.orderBody())).json()) as Order;
+  const hit = { ref: o.ref, phone: '0821234567' };
+  const ip = w.at('203.0.113.70');
+  for (let i = 0; i < 4; i++) await lookupVia(w, hit, ip);
+  w.advance(30 * MIN);
+  for (let i = 0; i < 6; i++) assertEquals((await lookupVia(w, hit, ip)).status, 200);
+  assertEquals((await lookupVia(w, hit, ip)).status, 429);
+  w.advance(20 * MIN);
+  assertEquals((await lookupVia(w, hit, ip)).status, 429); // refused ones were not logged
+  w.advance(10 * MIN + 1); // the first four are now older than an hour; six remain
+  for (let i = 0; i < 4; i++) assertEquals((await lookupVia(w, hit, ip)).status, 200, `after the window ${i}`);
+  assertEquals((await lookupVia(w, hit, ip)).status, 429);
+  w.advance(HOUR + 1);
+  assertEquals((await lookupVia(w, hit, ip)).status, 200);
+});
+
+// ---------------------------------------------------------------------------
+// Order emails, /config and the payment return URL
+// ---------------------------------------------------------------------------
+const SITE = 'https://shop.example.com';
+
+async function mailShop(opts: { mailer?: Mailer | null; siteUrl?: string | null; payments?: PaymentProvider | null } = {}) {
+  const fake = createFakeMailer();
+  const payments = opts.payments ?? null;
+  const deps = await createMemoryDeps(isAdmin, true, payments);
+  const mailer = opts.mailer === undefined ? fake : opts.mailer;
+  const siteUrl = opts.siteUrl === undefined ? SITE : opts.siteUrl;
+  const app = createApp({ ...deps, mailer, siteUrl, uploadImage: () => Promise.resolve('') });
+  return { app, fake };
+}
+const withEmail = { ...customer, email: 'thandi@example.com' };
+const adminPostTo = (app: App, path: string, body?: unknown) =>
+  app.request(`${P}${path}`, { method: 'POST', headers: ADMIN, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+
+Deno.test('email: order received is sent once to the customer, without the street address or phone', async () => {
+  const { app, fake } = await mailShop();
+  const body = { ...oneTee(), customer: withEmail, delivery: { method: 'door', address: ADDRESS } };
+  const r = await placeOrder(app, body);
+  assertEquals(r.status, 201);
+  const o = (await r.json()) as Order;
+  assertEquals(fake.sent.length, 1);
+  const m = fake.sent[0];
+  assertEquals(m.to, 'thandi@example.com');
+  assert(m.subject.includes(o.ref));
+  for (const part of ['4Nguru', o.ref, '1 x ', 'R85.00', `Total: R${o.total.toFixed(2)}`, `${SITE}/order/${o.id}`]) {
+    assert(m.text.includes(part), part);
+  }
+  for (const secret of ['Main Rd', 'Sea Point', '8005', '82 123 4567', 'Leave at gate']) assert(!m.text.includes(secret), secret);
+  // A retried POST (same id) is not announced twice.
+  assertEquals((await placeOrder(app, body)).status, 200);
+  assertEquals(fake.sent.length, 1);
+});
+
+Deno.test('email: no address on the order sends nothing; no siteUrl leaves out the link', async () => {
+  const a = await mailShop();
+  assertEquals((await placeOrder(a.app, oneTee())).status, 201);
+  assertEquals(a.fake.sent.length, 0);
+  const b = await mailShop({ siteUrl: null });
+  assertEquals((await placeOrder(b.app, { ...oneTee(), customer: withEmail })).status, 201);
+  assertEquals(b.fake.sent.length, 1);
+  assert(!b.fake.sent[0].text.includes('/order/'));
+});
+
+Deno.test('email: payment received on the webhook, once; a repeat webhook sends nothing', async () => {
+  const fake = createFakeProvider(crypto.randomUUID());
+  const { app, fake: mail } = await mailShop({ payments: fake });
+  const placed = await deliveryOrder(app, { paymentMethod: 'online', delivery: { method: 'collect' }, customer: withEmail });
+  const o = (await placed.json()) as Order;
+  assertEquals(mail.sent.length, 1); // order received
+  assertEquals((await app.request(`${P}/orders/${o.id}/pay`, { method: 'POST' })).status, 200);
+  const paid = await fake.pay(o.id);
+  const hook = () => app.request(`${P}/payments/webhook`, { method: 'POST', headers: paid.headers, body: paid.body });
+  assertEquals((await hook()).status, 200);
+  assertEquals(mail.sent.length, 2);
+  assertEquals(mail.sent[1].to, 'thandi@example.com');
+  assert(mail.sent[1].subject.includes('payment received'));
+  assert(mail.sent[1].text.includes(`${SITE}/order/${o.id}`));
+  assertEquals((await hook()).status, 200);
+  assertEquals(mail.sent.length, 2);
+});
+
+Deno.test('email: mark-paid sends payment received once; a second mark-paid sends nothing', async () => {
+  const { app, fake } = await mailShop();
+  const o = (await (await placeOrder(app, { ...oneTee(), customer: withEmail })).json()) as Order;
+  assertEquals((await adminPostTo(app, `/orders/${o.id}/mark-paid`)).status, 200);
+  assertEquals(fake.sent.length, 2);
+  assert(fake.sent[1].subject.includes('payment received'));
+  assertEquals((await adminPostTo(app, `/orders/${o.id}/mark-paid`)).status, 409);
+  assertEquals(fake.sent.length, 2);
+  // No email on the order: marking it paid sends nothing.
+  const bare = (await (await placeOrder(app, oneTee())).json()) as Order;
+  assertEquals((await adminPostTo(app, `/orders/${bare.id}/mark-paid`)).status, 200);
+  assertEquals(fake.sent.length, 2);
+});
+
+Deno.test('email: shipped sends courier, number and link once; a no-op status sends nothing', async () => {
+  const { app, fake } = await mailShop();
+  const o = (await (await placeOrder(app, { ...oneTee(), customer: withEmail, delivery: { method: 'door', address: ADDRESS } })).json()) as Order;
+  await adminPostTo(app, `/orders/${o.id}/mark-paid`);
+  assertEquals((await adminPostTo(app, `/orders/${o.id}/status`, { status: 'packed' })).status, 200);
+  assertEquals(fake.sent.length, 2); // packed sends nothing
+  const t = await adminPostTo(app, `/orders/${o.id}/tracking`, { courier: 'The Courier Guy', number: 'TCG123', url: 'https://track.example.com/TCG123' });
+  assertEquals(t.status, 200);
+  assertEquals((await adminPostTo(app, `/orders/${o.id}/status`, { status: 'shipped' })).status, 200);
+  assertEquals(fake.sent.length, 3);
+  const m = fake.sent[2];
+  assertEquals(m.to, 'thandi@example.com');
+  for (const part of ['has shipped', 'The Courier Guy', 'TCG123', 'https://track.example.com/TCG123', `${SITE}/order/${o.id}`]) {
+    assert((m.subject + m.text).includes(part), part);
+  }
+  assert(!m.text.includes('Main Rd'));
+  const again = await adminPostTo(app, `/orders/${o.id}/status`, { status: 'shipped' });
+  assertEquals(again.status, 409);
+  assertEquals(fake.sent.length, 3);
+});
+
+Deno.test('email: a store that reports changed false (no-op status, mark-paid) sends nothing', async () => {
+  const fake = createFakeMailer();
+  const deps = await createMemoryDeps(isAdmin, true);
+  const o = (await deps.orders.place(crypto.randomUUID(), [{ productId: '1', quantity: 1 }], withEmail)) as { order: Order };
+  const orders = {
+    ...deps.orders,
+    setStatus: (id: string, status: OrderStatus, from?: OrderStatus) =>
+      deps.orders.setStatus(id, status, from).then((r) => (r.ok ? { ...r, changed: false } : r)),
+  };
+  const app = createApp({ ...deps, orders, mailer: fake, siteUrl: SITE });
+  assertEquals((await adminPostTo(app, `/orders/${o.order.id}/mark-paid`)).status, 200);
+  assertEquals((await adminPostTo(app, `/orders/${o.order.id}/status`, { status: 'packed' })).status, 200);
+  assertEquals(fake.sent.length, 0);
+});
+
+Deno.test('email: a mailer that throws changes neither the response nor the order, and logs no address', async () => {
+  const boom: Mailer = { send: () => Promise.reject(new Error('down thandi@example.com')) };
+  const { app } = await mailShop({ mailer: boom, payments: createFakeProvider(crypto.randomUUID()) });
+  const logged: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => void logged.push(a.join(' '));
+  try {
+    const r = await placeOrder(app, { ...oneTee(), customer: withEmail });
+    assertEquals(r.status, 201);
+    const o = (await r.json()) as Order;
+    const mp = await adminPostTo(app, `/orders/${o.id}/mark-paid`);
+    assertEquals(mp.status, 200);
+    assertEquals(((await mp.json()) as Order).status, 'paid');
+    const listed = ((await (await app.request(`${P}/orders`, { headers: ADMIN })).json()) as Order[]).find((x) => x.id === o.id)!;
+    assertEquals(listed.status, 'paid');
+    assertEquals(logged.length, 2);
+    assertEquals(logged[0], `email failed for order ${o.ref}`);
+    assert(logged.every((l) => !l.includes('@') && !l.includes('down')));
+  } finally {
+    console.error = orig;
+  }
+});
+
+Deno.test('email: without a mailer every route still works', async () => {
+  const { app } = await mailShop({ mailer: null });
+  const o = (await (await placeOrder(app, { ...oneTee(), customer: withEmail })).json()) as Order;
+  assertEquals((await adminPostTo(app, `/orders/${o.id}/mark-paid`)).status, 200);
+  assertEquals((await adminPostTo(app, `/orders/${o.id}/status`, { status: 'packed' })).status, 200);
+});
+
+Deno.test('config: onlinePayments follows the payment provider', async () => {
+  const off = await setup();
+  const r = await off.request(`${P}/config`);
+  assertEquals(r.status, 200);
+  assertEquals(await r.json(), { onlinePayments: false });
+  const on = await setup(createFakeProvider(crypto.randomUUID()));
+  assertEquals(await (await on.request(`${P}/config`)).json(), { onlinePayments: true });
+});
+
+Deno.test('pay: the return URL is passed only when siteUrl is set', async () => {
+  for (const siteUrl of [SITE, null]) {
+    const fake = createFakeProvider(crypto.randomUUID());
+    const { app } = await mailShop({ payments: fake, siteUrl });
+    const o = (await (await deliveryOrder(app, { paymentMethod: 'online', delivery: { method: 'collect' }, customer: withEmail })).json()) as Order;
+    assertEquals((await app.request(`${P}/orders/${o.id}/pay`, { method: 'POST' })).status, 200);
+    assertEquals(fake.starts[0].callbackUrl, siteUrl ? `${SITE}/order/${o.id}?paid=1` : undefined);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/orders: the owner enters an order (no unit cap, no address limit, online = a 48-hour payment link)
+// ---------------------------------------------------------------------------
+Deno.test('admin orders: needs an admin (401 without a token, 403 for a non-admin) and takes no stock when refused', async () => {
+  const w = await timed();
+  const body = w.orderBody();
+  const send = (headers: Record<string, string>) =>
+    w.app.request(`${P}/admin/orders`, { method: 'POST', headers, body: JSON.stringify(body) });
+  assertEquals((await send(JSON_H)).status, 401);
+  assertEquals((await send({ ...JSON_H, Authorization: 'Bearer user' })).status, 403);
+  assertEquals(await w.stock(), 100);
+  assertEquals((await w.orders.list()).length, 0);
+});
+
+const adminOrder = (w: Awaited<ReturnType<typeof timed>>, body: unknown, headers: Record<string, string> = {}) =>
+  w.app.request(`${P}/admin/orders`, { method: 'POST', headers: { ...ADMIN, ...headers }, body: JSON.stringify(body) });
+
+Deno.test('admin orders: 11 or more units are accepted where POST /orders refuses them; per-line limits stay', async () => {
+  const w = await timed();
+  assertEquals((await w.place(w.orderBody({}, 11))).status, 400); // the public route keeps its cap
+  const big = await adminOrder(w, { ...w.orderBody(), items: [{ productId: 'tee', quantity: 40 }, { productId: 'tee', quantity: 30 }] });
+  assertEquals(big.status, 201);
+  const o = (await big.json()) as Order;
+  assertEquals(o.status, 'pending');
+  assertEquals(o.total, 700);
+  assertEquals(await w.stock(), 30);
+  // Still checked: one line over 50, an empty list, bad customer data.
+  assertEquals((await adminOrder(w, w.orderBody({}, 51))).status, 400);
+  assertEquals((await adminOrder(w, { ...w.orderBody(), items: [] })).status, 400);
+  assertEquals((await adminOrder(w, { ...w.orderBody(), customer: { name: '', phone: '1' } })).status, 400);
+  assertEquals((await adminOrder(w, w.orderBody({ delivery: { method: 'door' } }))).status, 400);
+  const bad = await w.app.request(`${P}/admin/orders`, { method: 'POST', headers: ADMIN, body: '{nope' });
+  assertEquals(bad.status, 400);
+  assertEquals(await w.stock(), 30);
+});
+
+Deno.test('admin orders: prices, delivery fee and stock rules are the server\'s; a shortfall is 409 and takes nothing; unknown products and delivery are 400', async () => {
+  const w = await timed();
+  const withFee = await adminOrder(w, w.orderBody({ delivery: { method: 'locker', locker: 'PUDO Sea Point' }, price: 1, total: 1 }, 2));
+  assertEquals(withFee.status, 201);
+  const o = (await withFee.json()) as Order;
+  assertEquals([o.deliveryFee, o.total], [55, 75]);
+  assertEquals(o.delivery?.locker, 'PUDO Sea Point');
+  assertEquals(await w.stock(), 98);
+
+  const short = await adminOrder(w, { ...w.orderBody(), items: [{ productId: 'tee', quantity: 50 }, { productId: 'tee', quantity: 49 }] });
+  assertEquals(short.status, 409);
+  const sb = await short.json();
+  assertEquals(sb.error, 'Insufficient stock');
+  assertEquals(sb.short.length, 1);
+  assertEquals([sb.short[0].productId, sb.short[0].requested, sb.short[0].available], ['tee', 99, 98]);
+  assertEquals(await w.stock(), 98);
+  assertEquals((await w.orders.list()).length, 1);
+
+  const missing = await adminOrder(w, { ...w.orderBody(), items: [{ productId: 'nope', quantity: 1 }] });
+  assertEquals(missing.status, 400);
+  assertEquals((await missing.json()).missing, ['nope']);
+  const noDelivery = await adminOrder(w, w.orderBody({ delivery: { method: 'collect' } }));
+  assertEquals(noDelivery.status, 201);
+});
+
+Deno.test('admin orders: a retried id is one order (200, same body, stock taken once)', async () => {
+  const w = await timed();
+  const body = w.orderBody({}, 3);
+  const first = await adminOrder(w, body);
+  assertEquals(first.status, 201);
+  const again = await adminOrder(w, body);
+  assertEquals(again.status, 200);
+  assertEquals(await again.json(), await first.json());
+  assertEquals(await w.stock(), 97);
+});
+
+Deno.test('admin orders: no address limit, whatever cf-connecting-ip says; the public route is still limited', async () => {
+  const w = await timed();
+  const ip = w.at('203.0.113.50');
+  for (let i = 0; i < 8; i++) assertEquals((await adminOrder(w, w.orderBody(), ip)).status, 201, `order ${i + 1}`);
+  // Nothing was written to the address log: the public route still allows its own 5 from the same address.
+  for (let i = 0; i < 5; i++) assertEquals((await w.place(w.orderBody(), ip)).status, 201, `public order ${i + 1}`);
+  assertEquals((await w.place(w.orderBody(), ip)).status, 429);
+  // And the admin route is still open for that address.
+  assertEquals((await adminOrder(w, w.orderBody(), ip)).status, 201);
+  assertEquals(await w.stock(), 100 - 8 - 5 - 1);
+});
+
+Deno.test('admin orders: online is refused with 503 before any stock is taken when there is no provider', async () => {
+  const w = await timed();
+  const r = await adminOrder(w, w.orderBody({ paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } }));
+  assertEquals(r.status, 503);
+  assertEquals(await r.json(), { error: 'Online payment is not available' });
+  assertEquals(await w.stock(), 100);
+  assertEquals((await w.orders.list()).length, 0);
+  assertEquals((await adminOrder(w, w.orderBody({ paymentMethod: 'whatsapp' }))).status, 201);
+});
+
+Deno.test('admin orders: online needs an email (400) and an unknown payment method is 400', async () => {
+  const w = await timed(createFakeProvider(crypto.randomUUID()));
+  const noEmail = await adminOrder(w, w.orderBody({ paymentMethod: 'online' }));
+  assertEquals(noEmail.status, 400);
+  assertEquals(await noEmail.json(), { error: 'customer email is needed to pay online' });
+  assertEquals((await adminOrder(w, w.orderBody({ paymentMethod: 'online', customer: { ...customer, email: 'nope' } }))).status, 400);
+  assertEquals((await adminOrder(w, w.orderBody({ paymentMethod: 'cash' }))).status, 400);
+  assertEquals(await w.stock(), 100);
+});
+
+Deno.test('admin orders: an online order is awaiting_payment with a 48-hour hold, set once; a retry does not extend it', async () => {
+  const w = await timed(createFakeProvider(crypto.randomUUID()));
+  const t0 = Date.parse('2026-06-01T10:00:00.000Z');
+  const body = w.orderBody({ paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } }, 12);
+  const first = await adminOrder(w, body);
+  assertEquals(first.status, 201);
+  const o = (await first.json()) as Order;
+  assertEquals([o.status, o.paymentMethod], ['awaiting_payment', 'online']);
+  assertEquals(o.expiresAt, new Date(t0 + 48 * HOUR).toISOString());
+  assertEquals(await w.stock(), 88);
+
+  // 47 hours later nothing has expired; a retry of the same id leaves the expiry where it was.
+  w.advance(47 * HOUR);
+  assertEquals(await w.orders.expireDue(), []);
+  const retry = await adminOrder(w, body);
+  assertEquals(retry.status, 200);
+  assertEquals(((await retry.json()) as Order).expiresAt, o.expiresAt);
+  assertEquals((await w.get(o.id))?.expiresAt, o.expiresAt);
+
+  // Past the 48 hours it expires and the stock goes back.
+  w.advance(HOUR + MIN);
+  assertEquals(await w.orders.expireDue(), [o.id]);
+  assertEquals((await w.get(o.id))?.status, 'expired');
+  assertEquals(await w.stock(), 100);
+});
+
+Deno.test('admin orders: the public route keeps its 30-minute hold for online orders; a whatsapp order from the admin keeps 48 hours', async () => {
+  const w = await timed(createFakeProvider(crypto.randomUUID()));
+  const t0 = Date.parse('2026-06-01T10:00:00.000Z');
+  const online = { paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } };
+  const pub = (await (await w.place(w.orderBody(online))).json()) as Order;
+  assertEquals(pub.expiresAt, new Date(t0 + 30 * MIN).toISOString());
+  const wa = (await (await adminOrder(w, w.orderBody())).json()) as Order;
+  assertEquals([wa.status, wa.expiresAt], ['pending', new Date(t0 + 48 * HOUR).toISOString()]);
+});
+
+Deno.test('admin orders: setPaymentWindow only touches an awaiting_payment order', async () => {
+  const w = await timed(createFakeProvider(crypto.randomUUID()));
+  const online = { paymentMethod: 'online', customer: { ...customer, email: 't@example.com' } };
+  const pub = (await (await w.place(w.orderBody(online))).json()) as Order;
+  const ok = await w.orders.setPaymentWindow(pub.id, 48);
+  assertEquals(ok.ok && ok.order.expiresAt, new Date(Date.parse('2026-06-01T10:00:00.000Z') + 48 * HOUR).toISOString());
+  const wa = (await (await adminOrder(w, w.orderBody())).json()) as Order;
+  const before = (await w.get(wa.id))?.expiresAt;
+  const refused = await w.orders.setPaymentWindow(wa.id, 1);
+  assertEquals(refused.ok, false);
+  assertEquals(!refused.ok && refused.reason, 'bad_status');
+  assertEquals((await w.get(wa.id))?.expiresAt, before);
+  assertEquals(await w.orders.setPaymentWindow(crypto.randomUUID(), 48), { ok: false, reason: 'not_found' });
 });

@@ -1,5 +1,8 @@
 import { HelpCircle, Truck, RefreshCcw, Ruler, Mail, Phone, MessageSquare, Facebook, Instagram } from "lucide-react";
+import { Link } from "react-router";
 import { shop, whatsappLink } from "../config/shop";
+
+const pageLink = "text-ink underline underline-offset-4 hover:text-prism transition-colors";
 
 export function CustomerService() {
   const contactMethods = [
@@ -60,54 +63,27 @@ export function CustomerService() {
       title: "Shipping Information",
       icon: <Truck className="w-6 h-6 text-ink" />,
       content: (
-        <div className="space-y-6">
-          <p className="text-b60">We deliver nationwide across South Africa.</p>
-          <ul className="border-t border-b10">
-            <li className="py-3 border-b border-b10 text-b60">Standard Delivery: 3-5 working days (R100)</li>
-            <li className="py-3 border-b border-b10 text-b60">Express Delivery: 1-2 working days (R150)</li>
-            <li className="py-3 border-b border-b10 text-b60">Free delivery for orders over R1000</li>
-          </ul>
-        </div>
+        <p className="text-b60">
+          Delivery options, fees and times are on our <Link to="/delivery" className={pageLink}>delivery page</Link>.
+        </p>
       )
     },
     {
       title: "Returns & Exchanges",
       icon: <RefreshCcw className="w-6 h-6 text-ink" />,
       content: (
-        <div className="space-y-6">
-          <p className="text-b60">Not satisfied with your purchase? You can return or exchange items within 30 days of delivery.</p>
-          <ul className="border-t border-b10">
-            <li className="py-3 border-b border-b10 text-b60">Items must be unworn and in original packaging</li>
-            <li className="py-3 border-b border-b10 text-b60">Return shipping costs are the responsibility of the customer unless the item is faulty</li>
-            <li className="py-3 border-b border-b10 text-b60">Exchanges are subject to stock availability</li>
-          </ul>
-        </div>
+        <p className="text-b60">
+          Exchanges, returns and your rights are on our <Link to="/returns" className={pageLink}>returns page</Link>.
+        </p>
       )
     },
     {
       title: "Size Guide",
       icon: <Ruler className="w-6 h-6 text-ink" />,
       content: (
-        <div className="space-y-6">
-          <p className="text-b60">Our sizes generally follow standard South African sizing:</p>
-          <div className="overflow-x-auto border border-b10">
-            <table className="min-w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-b10">
-                  <th className="p-3 text-left micro text-b60 font-normal">Size</th>
-                  <th className="p-3 text-left micro text-b60 font-normal">Chest (cm)</th>
-                  <th className="p-3 text-left micro text-b60 font-normal">Waist (cm)</th>
-                </tr>
-              </thead>
-              <tbody className="font-mono">
-                <tr className="border-b border-b10"><td className="p-3">S</td><td className="p-3">91-96</td><td className="p-3">76-81</td></tr>
-                <tr className="border-b border-b10"><td className="p-3">M</td><td className="p-3">97-102</td><td className="p-3">82-87</td></tr>
-                <tr className="border-b border-b10"><td className="p-3">L</td><td className="p-3">103-108</td><td className="p-3">88-93</td></tr>
-                <tr><td className="p-3">XL</td><td className="p-3">109-114</td><td className="p-3">94-99</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <p className="text-b60">
+          Size measurements are on our <Link to="/size-guide" className={pageLink}>size guide</Link>.
+        </p>
       )
     }
   ];
@@ -139,7 +115,7 @@ export function CustomerService() {
         <section className="grid md:grid-cols-2 gap-8 items-end py-16">
           <div>
             <h2 className="display h-mid mb-4">Still have questions?</h2>
-            <p className="text-b60">Our team is available Monday to Friday, 9am - 5pm.</p>
+            <p className="text-b60">Reach us on WhatsApp or by email using the details above.</p>
           </div>
           <div className="md:justify-self-end">
             <a

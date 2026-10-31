@@ -1,22 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import type { CartLine } from "../utils/storage";
-import { getCart, removeFromCart, updateCartItem, clearCart, findVariant, getVariantStock } from "../utils/storage";
+import { getCart, removeFromCart, updateCartItem, findVariant, getVariantStock } from "../utils/storage";
 import { Trash2 } from "lucide-react";
 import { toast } from "../lib/toast";
 import { ProductImage } from "./prism/ProductImage";
-import { CheckoutPanel } from "./CheckoutPanel";
 import { useProducts } from "../hooks/useProducts";
 import { quoteCart } from "../api/products";
 import type { CartQuote } from "../api/types";
 
-export function Cart() {
+/** The cart lines (read after mount) and their server quote. Shared by the cart and the checkout. */
+export function useCartQuote() {
   // The cart lives in the browser. It is read after mount, so the server and the first client
   // render both show the same neutral page and hydration matches.
   const [lines, setLines] = useState<CartLine[]>([]);
   const [cartReady, setCartReady] = useState(false);
-  const { products, loading: productsLoading, error: productsError, reload } = useProducts();
-  const [orderPlaced, setOrderPlaced] = useState(false);
   const [quote, setQuote] = useState<CartQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -66,6 +64,14 @@ export function Cart() {
     return () => clearTimeout(timer);
   }, [linesKey, retryCount]);
 
+  const retry = () => setRetryCount((n) => n + 1);
+  return { lines, cartReady, quote, quoting, quoteError, linesKey, refreshCart, retry };
+}
+
+export function Cart() {
+  const { lines, cartReady, quote, quoting, quoteError, linesKey, refreshCart, retry } = useCartQuote();
+  const { products, loading: productsLoading, error: productsError } = useProducts();
+
   const productsById = new Map(products.map((p) => [p.id, p]));
   const productsReady = !productsLoading && !productsError;
   // Gone product, or a variant (size and colour) that no longer exists.
@@ -92,6 +98,7 @@ export function Cart() {
       0,
     );
   const total = quote?.total ?? 0;
+  const blocked = !quote || quoting || hasUnavailable || quote.missing.length > 0;
 
   const handleUpdateQuantity = (index: number, quantity: number) => {
     if (quantity < 1) return;
@@ -110,12 +117,6 @@ export function Cart() {
 
   const handleRemove = (index: number) => {
     removeFromCart(index);
-    refreshCart();
-    window.dispatchEvent(new Event('cartUpdated'));
-  };
-
-  const handleCartCleared = () => {
-    clearCart();
     refreshCart();
     window.dispatchEvent(new Event('cartUpdated'));
   };
@@ -146,9 +147,6 @@ export function Cart() {
         <div className="grid lg:grid-cols-3 gap-10 lg:gap-16">
           {/* Cart Items */}
           <div className="lg:col-span-2">
-            {orderPlaced && (
-              <p className="micro text-b60 mb-4">Order saved. Your cart is locked until you confirm it was sent.</p>
-            )}
             <div className="border-t border-b10">
               {lines.map((item, index) => {
                 const product = productsById.get(item.productId);
@@ -174,8 +172,7 @@ export function Cart() {
                   <div className="flex flex-col items-end justify-between">
                     <button
                       onClick={() => handleRemove(index)}
-                      disabled={orderPlaced}
-                      className="text-b60 hover:text-prism transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="text-b60 hover:text-prism transition-colors "
                       aria-label="Remove item"
                     >
                       <Trash2 className="w-5 h-5" />
@@ -183,15 +180,14 @@ export function Cart() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity - 1)}
-                        disabled={orderPlaced}
-                        className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         -
                       </button>
                       <span className="w-8 text-center font-mono">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
-                        disabled={orderPlaced || unavailable || quantityInCart(item) >= availableFor(item)}
+                        disabled={unavailable || quantityInCart(item) >= availableFor(item)}
                         className="w-8 h-8 border border-b10 text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         +
@@ -218,20 +214,17 @@ export function Cart() {
                 {quoteError && (
                   <div className="mt-2 flex flex-wrap items-center gap-4">
                     <p className="text-sm text-prism">{quoteError}</p>
-                    <button type="button" onClick={() => setRetryCount((n) => n + 1)} className="linkr">
+                    <button type="button" onClick={retry} className="linkr">
                       Try again
                     </button>
                   </div>
                 )}
               </div>
-              <CheckoutPanel
-                items={JSON.parse(linesKey)}
-                blocked={!quote || quoting || hasUnavailable || quote.missing.length > 0}
-                onStockShort={() => { reload().catch(() => {}); }}
-                onCartCleared={handleCartCleared}
-                onOrderChange={setOrderPlaced}
-                itemsTotal={quote ? quote.total : undefined}
-              />
+              {blocked ? (
+                <button type="button" disabled className="cta w-full">Checkout</button>
+              ) : (
+                <Link to="/checkout" className="cta w-full">Checkout</Link>
+              )}
             </div>
           </div>
         </div>

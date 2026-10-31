@@ -1,113 +1,111 @@
+import { useMemo } from "react";
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
 import { categoryPath } from "../utils/categoryPath";
-import { ProductCard } from "./ProductCard";
+import { shop, whatsappLink } from "../config/shop";
+import { ProductGrid } from "./ProductGrid";
 import { GooArt, LoadState, Ticker } from "./prism";
 
+const FEATURED_COUNT = 8;
+
 const tickerItems = (categoryNames: string[]) => [
-  "Premium quality clothing",
   ...categoryNames,
   "Order on WhatsApp",
   "Delivery across South Africa",
 ];
 
-const bigTickerItems = ["4Nguru", "Wear it loud", "Made to move", "The brand"];
-
-const heroMetas = [
-  { pos: "top-6 left-6", label: "Est.", value: "Since 2014", right: false },
-  { pos: "top-6 right-6 text-right items-end", label: "Based in", value: "South Africa", right: true },
-  { pos: "bottom-6 left-6", label: "Ordering", value: "Via WhatsApp", right: false },
-  { pos: "bottom-6 right-6 text-right items-end", label: "Collection", value: "SS '26", right: true },
-];
-
 export function Home() {
   const { products, loading, error, reload } = useProducts();
   const { categories, loading: categoriesLoading, error: categoriesError, reload: reloadCategories } = useCategories();
-  const featuredProducts = products.slice(0, 100);
-  const firstCategory = categories[0];
+
+  // The newest active products, in stock first so the front of the shop is not sold-out items.
+  const featured = useMemo(() => {
+    const active = products
+      .filter((p) => p.active !== false)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+    const inStock = active.filter((p) => p.stock > 0);
+    return (inStock.length >= FEATURED_COUNT ? inStock : [...inStock, ...active.filter((p) => p.stock <= 0)]).slice(0, FEATURED_COUNT);
+  }, [products]);
 
   return (
     <div className="min-h-screen overflow-x-hidden">
       {/* Hero */}
-      <section className="relative px-6 py-6 md:py-20">
-        {heroMetas.map((m) => (
-          <div key={m.label} className={`hidden md:flex absolute z-10 flex-col caps ${m.pos}`}>
-            <small className="text-xs">{m.label}</small>
-            <strong className="text-lg font-normal">{m.value}</strong>
-          </div>
-        ))}
-        <div className="max-w-[1280px] mx-auto flex justify-center md:px-[8vw]">
-          <div className="relative inline-block h-lead-tight text-[clamp(72px,20vw,300px)]">
-            <h1 className="display h-lead-tight text-[1em]">
+      <section className="px-6 py-10 md:py-20">
+        <div className="max-w-[1968px] mx-auto grid items-center gap-10 md:grid-cols-2 md:gap-16">
+          <div className="min-w-0">
+            <p className="micro text-b60 mb-4">South African clothing</p>
+            <h1 className="display text-[clamp(56px,14vw,200px)] mb-6">
               <span className="sr-only">4Nguru The Brand Online</span>
-              <span aria-hidden="true">4NGURU</span>
+              <span aria-hidden="true">4Nguru</span>
             </h1>
-            <span
-              aria-hidden="true"
-              className="hand absolute top-1/2 left-1/2 -translate-x-[42%] -translate-y-1/2 whitespace-nowrap pointer-events-none"
-              style={{ fontSize: "0.3em" }}
-            >
-              the brand
-            </span>
+            <p className="hand mb-6" aria-hidden="true">the brand</p>
+            <p className="text-b60 text-lg max-w-prose mb-8">
+              Shop online, or message us on WhatsApp to order. We deliver across South Africa.
+            </p>
+            <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+              <Link to="/shop" className="cta">Shop all</Link>
+              <a href={whatsappLink(`Hi ${shop.name}, I would like to ask about your clothing.`)} target="_blank" rel="noopener noreferrer" className="linkr text-ink">
+                Ask on WhatsApp
+                <ArrowRight aria-hidden="true" />
+              </a>
+            </div>
+          </div>
+          <div className="relative aspect-square overflow-hidden" aria-hidden="true">
+            <GooArt variant="hero" cols={8} rows={8} resampleMs={7000} />
           </div>
         </div>
       </section>
 
       <Ticker items={tickerItems(categories.map((c) => c.name))} />
 
-      {/* Hero art */}
-      <section className="px-6 pt-6">
-        <div className="max-w-[1968px] mx-auto relative aspect-square md:aspect-[2/1] overflow-hidden">
-          <GooArt variant="hero" cols={12} rows={6} resampleMs={7000} />
-          <span className="micro absolute bottom-4 left-4 bg-paper text-ink px-3 py-2">Click to resample</span>
-          <div className="absolute bottom-4 right-4">
-            {firstCategory && <Link to={categoryPath(firstCategory.id)} className="cta">Shop now</Link>}
-          </div>
-        </div>
-      </section>
-
-      {/* Categories */}
+      {/* Featured */}
       <section className="px-6 py-16 md:py-24">
         <div className="max-w-[1968px] mx-auto">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-10">
-            <p className="micro text-b60">01 / Categories</p>
-            <h2 className="display h-mid">Shop by category</h2>
+            <p className="micro text-b60">01 / New in</p>
+            <h2 className="display h-mid">Latest products</h2>
           </div>
-          <LoadState loading={categoriesLoading} error={categoriesError} onRetry={() => reloadCategories().catch(() => {})}>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              {categories.map((cat) => (
-                <Link key={cat.id} to={categoryPath(cat.id)} className="group block">
-                  <div className="aspect-square overflow-hidden">
-                    <GooArt variant="tile" cols={4} rows={4} seed={cat.id} />
-                  </div>
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <span className="font-display h-case text-xl">{cat.name}</span>
-                    <span className="linkr" aria-hidden="true">
-                      <ArrowRight />
-                    </span>
-                  </div>
-                </Link>
-              ))}
+          <LoadState loading={loading} error={error} onRetry={() => reload().catch(() => {})}>
+            {featured.length === 0 ? (
+              <div className="border border-b10 p-8 text-center md:p-12">
+                <p className="text-b60 mb-6">No products to show yet.</p>
+              </div>
+            ) : (
+              <ProductGrid products={featured} />
+            )}
+            <div className="mt-10">
+              <Link to="/shop" className="linkr text-ink">
+                See everything in the shop
+                <ArrowRight aria-hidden="true" />
+              </Link>
             </div>
           </LoadState>
         </div>
       </section>
 
-      <Ticker variant="big" items={bigTickerItems} />
-
-      {/* Featured */}
-      <section className="px-6 py-16 md:py-24">
+      {/* Categories */}
+      <section className="px-6 pb-16 md:pb-24">
         <div className="max-w-[1968px] mx-auto">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-10">
-            <p className="micro text-b60">02 / Featured</p>
-            <h2 className="display h-mid">Featured products</h2>
+            <p className="micro text-b60">02 / Categories</p>
+            <h2 className="display h-mid">Shop by category</h2>
           </div>
-          <LoadState loading={loading} error={error} onRetry={() => reload().catch(() => {})}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {featuredProducts.map((product) => (
-                <ProductCard key={product.id} product={product} />
+          <LoadState loading={categoriesLoading} error={categoriesError} onRetry={() => reloadCategories().catch(() => {})}>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              {categories.map((cat) => (
+                <Link key={cat.id} to={categoryPath(cat.id)} className="group block min-w-0">
+                  <div className="aspect-square overflow-hidden">
+                    <GooArt variant="tile" cols={4} rows={4} seed={cat.id} />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <span className="font-display h-case text-xl min-w-0 break-words">{cat.name}</span>
+                    <span className="linkr" aria-hidden="true">
+                      <ArrowRight />
+                    </span>
+                  </div>
+                </Link>
               ))}
             </div>
           </LoadState>

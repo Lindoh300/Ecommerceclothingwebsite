@@ -26,6 +26,8 @@ const LATER_MIGRATIONS = [
   '20261030110000_delivery.sql',
   '20261030120000_payments.sql',
   '20261030130000_place_order_v3.sql',
+  '20261031100000_order_fulfilment.sql',
+  '20261031110000_payment_links.sql',
 ];
 
 // ---------------------------------------------------------------------------
@@ -1706,9 +1708,16 @@ async function dumpLifecycle(db: Db): Promise<Json> {
 Deno.test('lifecycle migration is idempotent: a second run changes nothing and keeps the data', async () => {
   await withDb(async (db) => {
     const sql = await readMigration('20261030100000_order_lifecycle.sql');
+    // Re-running the lifecycle migration alone would put the old set_order_status back, so a re-run applies
+    // it and then the later migration that replaces that function, as running them all in order does.
+    const fulfilment = await readMigration('20261031100000_order_fulfilment.sql');
+    const rerun = async () => {
+      await db.exec(sql);
+      await db.exec(fulfilment);
+    };
     const first = await dumpLifecycle(db);
     assertEquals(first.functions.length, 4);
-    await db.exec(sql);
+    await rerun();
     assertEquals(await dumpLifecycle(db), first);
 
     // Orders in every status, with new-column data, survive a re-run (the status check is dropped and re-added).
@@ -1716,7 +1725,7 @@ Deno.test('lifecycle migration is idempotent: a second run changes nothing and k
       await insertOrder(db, status, { expires_at: DUE, delivery_method: 'courier', delivery_fee: 25, payment_method: 'online', tracking_number: 'T1' });
     }
     const edited = await dumpLifecycle(db);
-    await db.exec(sql);
+    await rerun();
     assertEquals(await dumpLifecycle(db), edited);
     // And the status check still rejects an unknown status afterwards.
     await assertRejects(() => insertOrder(db, 'bogus'), Error, 'orders_status_check');
@@ -2723,6 +2732,503 @@ Deno.test('cron migration: schedules expire-orders every 5 minutes, is not loade
   for (const name of names.filter((n) => n !== CRON)) {
     assert(!(await readMigration(name)).includes('cron.schedule'), `${name} mentions cron.schedule`);
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// 20261031100000_order_fulfilment.sql: cancelled -> refunded, set_order_tracking, extend_order,
+// lookup_order and order_lookup_log.
+// ---------------------------------------------------------------------------
+Deno.test('refund_due: cancelled -> refunded is allowed only with the flag, which it clears; nothing else changes', async () => {
+  await withDb(async (db) => {
+    const tee = await findVariant(db, '1', 'M', 'Red');
+    await setStock(db, tee.id, 20);
+    // The whole pair table, with the flag set on every order: only cancelled -> refunded is new.
+    for (const from of STATUSES) {
+      for (const to of STATUSES) {
+        const label = `${from} -> ${to} (refund_due)`;
+        const id = await insertOrder(db, from, { payment_flag: 'refund_due', expires_at: DUE });
+        const r = await setStatus(db, id, to);
+        const row = await orderRow(db, id);
+        if (from === to) {
+          assertEquals([r.ok, r.changed], [true, false], label);
+          assertEquals(row.payment_flag, 'refund_due', label);
+        } else if (isAllowed(from, to) || (from === 'cancelled' && to === 'refunded')) {
+          assertEquals([r.ok, r.changed, row.status], [true, true, to], label);
+          // The flag is cleared by any move to refunded, and kept by the other moves.
+          assertEquals(row.payment_flag, to === 'refunded' ? null : 'refund_due', label);
+          assertEquals(r.order.paymentFlag, to === 'refunded' ? null : 'refund_due', label);
+        } else {
+          assertEquals([r.ok, r.reason, row.status, row.payment_flag], [false, 'bad_transition', from, 'refund_due'], label);
+        }
+      }
+    }
+
+    // Without the flag, or with the other flag, a cancelled order cannot be refunded.
+    for (const flag of [null, 'amount_mismatch']) {
+      const id = await insertOrder(db, 'cancelled', { payment_flag: flag });
+      const r = await setStatus(db, id, 'refunded');
+      assertEquals([r.ok, r.reason, r.from, r.to], [false, 'bad_transition', 'cancelled', 'refunded'], String(flag));
+      assertEquals((await orderRow(db, id)).status, 'cancelled');
+      assertEquals((await orderRow(db, id)).payment_flag, flag);
+    }
+
+    // p_from is honoured, and the stock does not move.
+    await setStock(db, tee.id, 20);
+    const id = await insertOrder(db, 'cancelled', { payment_flag: 'refund_due' });
+    const wrong = await setStatus(db, id, 'refunded', 'expired');
+    assertEquals([wrong.ok, wrong.reason], [false, 'bad_transition']);
+    assertEquals((await orderRow(db, id)).status, 'cancelled');
+    const ok = await setStatus(db, id, 'refunded', 'cancelled');
+    assertEquals([ok.ok, ok.changed, ok.order.status, ok.order.paymentFlag], [true, true, 'refunded', null]);
+    assertEquals((await findVariant(db, '1', 'M', 'Red')).stock, 20);
+    // Refunded stays final, and another refund is a no-op.
+    assertEquals((await setStatus(db, id, 'refunded')).changed, false);
+    assertEquals((await setStatus(db, id, 'cancelled')).reason, 'bad_transition');
+
+    // An amount_mismatch flag survives a refund of a paid order.
+    const mism = await insertOrder(db, 'paid', { payment_flag: 'amount_mismatch' });
+    assertEquals((await setStatus(db, mism, 'refunded')).changed, true);
+    assertEquals((await orderRow(db, mism)).payment_flag, 'amount_mismatch');
+  });
+});
+
+Deno.test('refund_due: a late payment with no stock left, then the refund, through the real functions', async () => {
+  await withDb(async (db) => {
+    await plentyOfTees(db);
+    const id = await startedOnline(db);
+    assertEquals((await setStatus(db, id, 'cancelled')).changed, true);
+    await db.exec(`update public.product_variants set stock = 0 where product_id = '1' and size = 'M' and color = 'Red'`);
+    assertEquals((await record(db, id, 58500)).outcome, 'refund_due');
+    let row = await orderRow(db, id);
+    assertEquals([row.status, row.payment_flag], ['cancelled', 'refund_due']);
+    // cancel_order_v2 leaves it alone.
+    assertEquals((await cancelV2(db, id)).status, 'cancelled');
+    assertEquals(await teeM(db), 0);
+
+    const r = await setStatus(db, id, 'refunded');
+    assertEquals([r.ok, r.changed, r.order.status, r.order.paymentFlag], [true, true, 'refunded', null]);
+    row = await orderRow(db, id);
+    assertEquals([row.status, row.payment_flag, row.expires_at], ['refunded', null, null]);
+    assertEquals(await teeM(db), 0); // refunding does not return stock
+    // A repeated payment event changes nothing.
+    assertEquals((await record(db, id, 58500)).outcome, 'already');
+  });
+});
+
+const setTracking = (db: Db, id: string, t: unknown) => call(db, 'public.set_order_tracking($1::uuid, $2::jsonb)', id, j(t));
+const trackingRow = async (db: Db, id: string) => {
+  const r = await orderRow(db, id);
+  return [r.tracking_courier, r.tracking_number, r.tracking_url];
+};
+
+Deno.test('set_order_tracking: packed and shipped only; trims, keeps missing keys and clears empty ones', async () => {
+  await withDb(async (db) => {
+    for (const status of STATUSES) {
+      const id = await insertOrder(db, status);
+      const r = await setTracking(db, id, { courier: 'Courier Guy', number: 'T1', url: 'https://t.example/T1' });
+      if (status === 'packed' || status === 'shipped') {
+        assertEquals(r.ok, true, status);
+        assertEquals(Object.keys(r).sort(), ['ok', 'order']);
+        assertEquals(r.order.tracking, { courier: 'Courier Guy', number: 'T1', url: 'https://t.example/T1' }, status);
+        assertEquals(r.order.status, status);
+      } else {
+        assertEquals([r.ok, r.reason, r.order.status], [false, 'bad_status', status], status);
+        assertEquals(await trackingRow(db, id), [null, null, null], status);
+      }
+    }
+    assertEquals(await setTracking(db, newId(), { number: 'x' }), { ok: false, reason: 'not_found' });
+
+    const id = await insertOrder(db, 'packed');
+    await setTracking(db, id, { courier: '  Aramex  ', number: ' 123 ', url: ' https://a.example/1 ' });
+    assertEquals(await trackingRow(db, id), ['Aramex', '123', 'https://a.example/1']);
+    // A missing key keeps the stored value.
+    await setTracking(db, id, { number: '456' });
+    assertEquals(await trackingRow(db, id), ['Aramex', '456', 'https://a.example/1']);
+    // An empty string or null clears it.
+    await setTracking(db, id, { courier: '', url: null });
+    assertEquals(await trackingRow(db, id), [null, '456', null]);
+    const none = await setTracking(db, id, { number: '   ' });
+    assertEquals(none.order.tracking, null);
+    assertEquals(await trackingRow(db, id), [null, null, null]);
+    // The status is untouched, and a non-object does nothing.
+    assertEquals((await setTracking(db, id, 'nope')).ok, true);
+    assertEquals((await orderRow(db, id)).status, 'packed');
+  });
+});
+
+Deno.test('extend_order: a waiting pending order gets greatest(expires_at, now) + 48 hours; other orders are refused', async () => {
+  await withDb(async (db) => {
+    const secs = async (id: string, from: string) =>
+      Number((await rows(db, `select extract(epoch from (expires_at - ${from}))::int as s from public.orders where id = $1`, [id]))[0].s);
+    const HOURS_48 = 48 * 3600;
+    const approx = (n: number, want: number, label: string) => assert(Math.abs(n - want) <= 5, `${label}: ${n} vs ${want}`);
+
+    // Time left: 48 hours are added to the old expiry.
+    const left = await insertOrder(db, 'pending', { expires_at: '2030-01-01T00:00:00+00' });
+    const a = await call(db, 'public.extend_order($1::uuid)', left);
+    assertEquals([a.ok, a.order.status], [true, 'pending']);
+    assertEquals(await secs(left, `timestamptz '2030-01-01T00:00:00+00'`), HOURS_48);
+    await call(db, 'public.extend_order($1::uuid)', left);
+    assertEquals(await secs(left, `timestamptz '2030-01-01T00:00:00+00'`), 2 * HOURS_48);
+
+    // Time already up (the job has not run yet): 48 hours from now.
+    const late = await insertOrder(db, 'pending', { expires_at: '2020-01-01T00:00:00+00' });
+    const b = await call(db, 'public.extend_order($1::uuid)', late);
+    approx(await secs(late, 'now()'), HOURS_48, 'late order');
+    assertEquals(b.ok, true);
+    assertEquals(Date.parse(b.order.expiresAt) > Date.now() + 47 * 3600 * 1000, true);
+    // And the expiry job leaves it alone now.
+    await expireDue(db);
+    assertEquals((await orderRow(db, late)).status, 'pending');
+
+    // Everything else is refused and unchanged.
+    for (const status of STATUSES.filter((s) => s !== 'pending')) {
+      const id = await insertOrder(db, status, { expires_at: DUE });
+      const r = await call(db, 'public.extend_order($1::uuid)', id);
+      assertEquals([r.ok, r.reason, r.order.status], [false, 'not_extendable', status], status);
+      assertEquals(await secs(id, `timestamptz '${DUE}'`), 0, status);
+    }
+    const noExpiry = await insertOrder(db, 'pending'); // an order from before expiry existed
+    const r = await call(db, 'public.extend_order($1::uuid)', noExpiry);
+    assertEquals([r.ok, r.reason], [false, 'not_extendable']);
+    assertEquals((await orderRow(db, noExpiry)).expires_at, null);
+    assertEquals(await call(db, 'public.extend_order($1::uuid)', newId()), { ok: false, reason: 'not_found' });
+  });
+});
+
+const lookup = (db: Db, ref: unknown, phone: unknown, ip: unknown = null) =>
+  call(db, 'public.lookup_order($1, $2, $3)', ref, phone, ip);
+const lookupLogCount = async (db: Db): Promise<number> =>
+  (await rows(db, 'select count(*)::int as n from public.order_lookup_log'))[0].n;
+const NOT_FOUND = { ok: false, reason: 'not_found' };
+const LOOKUP_IP = '198.51.100.20';
+
+/** An order whose ref and phone we choose (insertOrder gives ref LIFECYCL, phone '0'). */
+const orderFor = (db: Db, ref: string, phone: string, extra: Record<string, unknown> = {}) =>
+  insertOrder(db, 'pending', { ref, customer: j({ name: 'Thandi', phone }), ...extra });
+
+Deno.test('lookup_order: ref in any case, phone by its last 9 digits in any format; every miss is the same answer', async () => {
+  await withDb(async (db) => {
+    const id = await orderFor(db, 'ABCD1234', '082 123 4567');
+    const hit = { ok: true, id };
+    for (const phone of ['0821234567', '+27821234567', '+27 82 123 4567', '27821234567', '(082) 123-4567', '821234567', ' 082 123 4567 ']) {
+      assertEquals(await lookup(db, 'ABCD1234', phone), hit, phone);
+    }
+    for (const ref of ['abcd1234', 'AbCd1234', ' ABCD1234 ']) assertEquals(await lookup(db, ref, '0821234567'), hit, ref);
+
+    // Wrong ref and wrong phone (the last 9 digits differ) are the same answer, as are malformed inputs.
+    assertEquals(await lookup(db, 'ABCD1235', '0821234567'), NOT_FOUND);
+    assertEquals(await lookup(db, 'ABCD1234', '0821234568'), NOT_FOUND);
+    assertEquals(await lookup(db, 'ABCD1234', '0711234567'), NOT_FOUND);
+    for (const [ref, phone] of [['', ''], ['ABCD123', '0821234567'], ['ABCD12345', '0821234567'], ['ABCD1234', ''], ['ABCD1234', '12345'], ['ABCD1234', 'phone'], [null, null]]) {
+      assertEquals(await lookup(db, ref, phone), NOT_FOUND, `${ref} / ${phone}`);
+    }
+    // Fewer digits than the stored phone's last 9 never match by accident.
+    assertEquals(await lookup(db, 'ABCD1234', '1234567'), NOT_FOUND);
+    assertEquals(await lookup(db, 'ABCD1234', '21234567'), NOT_FOUND);
+    // Any status can be found, and the seeded old order too.
+    assertEquals((await lookup(db, 'ABCD1234', '0820000000')).ok, true);
+
+    // Two orders with the same ref and phone: the newest.
+    const older = await orderFor(db, 'DUPE0001', '0829999999', { created_at: '2026-01-01T00:00:00+00' });
+    const newer = await orderFor(db, 'DUPE0001', '+27829999999', { created_at: '2026-02-01T00:00:00+00' });
+    assert(older !== newer);
+    assertEquals(await lookup(db, 'dupe0001', '0829999999'), { ok: true, id: newer });
+  });
+});
+
+Deno.test('lookup_order: 10 lookups per address in a rolling hour, the 11th is rate_limited; found or not, all count', async () => {
+  await withDb(async (db) => {
+    const id = await orderFor(db, 'ABCD1234', '0821234567');
+    for (let i = 0; i < 10; i++) {
+      const r = await lookup(db, 'ABCD1234', i % 2 === 0 ? '0821234567' : '0000000000', LOOKUP_IP);
+      assertEquals(r, i % 2 === 0 ? { ok: true, id } : NOT_FOUND, `lookup ${i + 1}`);
+    }
+    assertEquals(await lookupLogCount(db), 10);
+    // The 11th is refused even with the right answer, and a refused one is not logged.
+    assertEquals(await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP), { ok: false, reason: 'rate_limited' });
+    assertEquals(await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP), { ok: false, reason: 'rate_limited' });
+    assertEquals(await lookupLogCount(db), 10);
+    // Another address, in either family, is independent.
+    assertEquals(await lookup(db, 'ABCD1234', '0821234567', '198.51.100.21'), { ok: true, id });
+    assertEquals(await lookup(db, 'ABCD1234', '0821234567', '2001:db8::17'), { ok: true, id });
+    assertEquals(await lookupLogCount(db), 12);
+    // The order limit is a separate counter.
+    assertEquals(await logCount(db), 0);
+  });
+});
+
+Deno.test('lookup_order: the hour rolls; no ip, a blank ip never blocks and logs nothing', async () => {
+  await withDb(async (db) => {
+    const id = await orderFor(db, 'ABCD1234', '0821234567');
+    for (let i = 0; i < 10; i++) await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP);
+    assertEquals((await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP)).reason, 'rate_limited');
+    // Four of the ten are older than an hour: four more are allowed, the fifth is not.
+    await db.exec(`update public.order_lookup_log set created_at = now() - interval '61 minutes'
+                   where ctid in (select ctid from public.order_lookup_log order by ctid limit 4)`);
+    for (let i = 0; i < 4; i++) assertEquals((await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP)).ok, true, `after the window ${i}`);
+    assertEquals((await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP)).reason, 'rate_limited');
+    assertEquals(await lookupLogCount(db), 10); // the stale rows were deleted
+    // A row just inside the hour still counts.
+    await db.exec(`update public.order_lookup_log set created_at = now() - interval '59 minutes'`);
+    assertEquals((await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP)).reason, 'rate_limited');
+
+    // Stale rows of other addresses are cleaned up by any limited lookup.
+    await db.exec(`update public.order_lookup_log set created_at = now() - interval '3 hours'`);
+    assertEquals((await lookup(db, 'ABCD1234', '0821234567', '198.51.100.99')).ok, true);
+    assertEquals(await lookupLogCount(db), 1);
+
+    // No address, no limit.
+    const before = await lookupLogCount(db);
+    for (const ip of [null, '', '   ']) {
+      for (let i = 0; i < 15; i++) assertEquals(await lookup(db, 'ABCD1234', '0821234567', ip), { ok: true, id }, `ip ${JSON.stringify(ip)}`);
+    }
+    assertEquals(await lookupLogCount(db), before);
+  });
+});
+
+Deno.test('lookup_order: the log holds only a salted hash of the address, the table is locked down, and the function is service_role only', async () => {
+  await withDb(async (db) => {
+    await orderFor(db, 'ABCD1234', '0821234567');
+    await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP);
+    await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP);
+    const log = await rows(db, 'select * from public.order_lookup_log');
+    assertEquals(log.length, 2);
+    assertEquals(Object.keys(log[0]).sort(), ['created_at', 'ip_hash']);
+    assertEquals(log[0].ip_hash, log[1].ip_hash);
+    assert(/^[0-9a-f]{64}$/.test(log[0].ip_hash));
+    assert(!JSON.stringify(log).includes(LOOKUP_IP));
+    const salt = (await rows(db, 'select salt from public.order_rate_salt'))[0].salt as string;
+    const expected = (await rows(db, `select encode(sha256(convert_to($1, 'UTF8')), 'hex') as h`, [salt + LOOKUP_IP]))[0].h;
+    assertEquals(log[0].ip_hash, expected);
+    // The same address hashes differently in the order log's key space only by the lock prefix, never by table:
+    // the order limit does not see these rows.
+    assertEquals(await logCount(db), 0);
+
+    assertEquals((await rows(db, `select relrowsecurity as rls from pg_class where oid = 'public.order_lookup_log'::regclass`))[0].rls, true);
+    assertEquals((await rows(db, `select count(*)::int as n from pg_policies where tablename = 'order_lookup_log'`))[0].n, 0);
+    for (const role of ['anon', 'authenticated']) {
+      for (const priv of ['select', 'insert', 'update', 'delete']) {
+        assertEquals(
+          (await rows(db, `select has_table_privilege($1, 'public.order_lookup_log', $2) as ok`, [role, priv]))[0].ok,
+          false,
+          `${role} ${priv}`,
+        );
+      }
+    }
+    const sigs = [
+      'public.set_order_status(uuid, text, text)',
+      'public.set_order_tracking(uuid, jsonb)',
+      'public.extend_order(uuid)',
+      'public.lookup_order(text, text, text)',
+    ];
+    for (const sig of sigs) {
+      for (const role of ['anon', 'authenticated']) {
+        assertEquals((await rows(db, `select has_function_privilege($1, $2, 'execute') as ok`, [role, sig]))[0].ok, false, `${role} ${sig}`);
+      }
+      assertEquals((await rows(db, `select has_function_privilege('service_role', $1, 'execute') as ok`, [sig]))[0].ok, true, sig);
+    }
+    const acl = await rows(
+      db,
+      `select p.proname, p.proacl::text as acl, p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname in ('set_order_tracking', 'extend_order', 'lookup_order')`,
+    );
+    assertEquals(acl.length, 3);
+    for (const a of acl) {
+      assertEquals(a.prosecdef, true, a.proname);
+      assertEquals((a.acl as string).replace(/^\{|\}$/g, '').split(',').some((e) => e.startsWith('=')), false, `${a.proname} acl ${a.acl}`);
+      assert(a.acl.includes('service_role=X'), `${a.proname} acl ${a.acl}`);
+    }
+    const id = await orderFor(db, 'ZZZZ0001', '0821234567');
+    for (const role of ['anon', 'authenticated']) {
+      await db.exec(`set role ${role}`);
+      try {
+        await assertRejects(() => lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP), Error, 'permission denied');
+        await assertRejects(() => call(db, 'public.extend_order($1::uuid)', id), Error, 'permission denied');
+        await assertRejects(() => setTracking(db, id, { number: '1' }), Error, 'permission denied');
+        await assertRejects(() => db.query('select * from public.order_lookup_log'), Error, 'permission denied');
+      } finally {
+        await db.exec('reset role');
+      }
+    }
+    await db.exec('set role service_role');
+    try {
+      assertEquals((await lookup(db, 'ZZZZ0001', '0821234567')).ok, true);
+    } finally {
+      await db.exec('reset role');
+    }
+  });
+});
+
+Deno.test('lookup_order: takes no order lock, only the per-address advisory lock; the tracking and extend functions lock one order row', async () => {
+  const text = await readMigration('20261031100000_order_fulfilment.sql');
+  const body = (fn: string) => {
+    const start = text.indexOf(`create or replace function public.${fn}(`);
+    assert(start >= 0, fn);
+    return text.slice(start, text.indexOf('\n$$;', start));
+  };
+  assert(!/for update(?! skip locked)/.test(body('lookup_order')));
+  assert(body('lookup_order').includes('pg_advisory_xact_lock'));
+  for (const fn of ['set_order_tracking', 'extend_order']) {
+    assertEquals(body(fn).match(/for update/g)?.length, 1, fn);
+    assert(!body(fn).includes('product_variants'), fn);
+  }
+});
+
+Deno.test('fulfilment migration is idempotent: a second run changes nothing and keeps the data', async () => {
+  await withDb(async (db) => {
+    const sql = await readMigration('20261031100000_order_fulfilment.sql');
+    const dump = async () => ({
+      orders: await rows(db, 'select to_jsonb(o) as r from public.orders o order by o.id'),
+      log: await rows(db, 'select * from public.order_lookup_log order by ip_hash, created_at'),
+      salt: await rows(db, 'select * from public.order_rate_salt'),
+      indexes: await rows(db, `select indexname, indexdef from pg_indexes where tablename = 'order_lookup_log' order by indexname`),
+      functions: await rows(
+        db,
+        `select p.oid::regprocedure::text as sig, pg_get_functiondef(p.oid) as def, p.proacl::text as acl
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname in ('set_order_status', 'set_order_tracking', 'extend_order', 'lookup_order')
+         order by sig`,
+      ),
+    });
+    await orderFor(db, 'ABCD1234', '0821234567');
+    await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP);
+    const first = await dump();
+    assertEquals(first.functions.length, 4);
+    assertEquals(first.log.length, 1);
+    await db.exec(sql);
+    assertEquals(await dump(), first);
+    for (let i = 0; i < 9; i++) await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP);
+    assertEquals((await lookup(db, 'ABCD1234', '0821234567', LOOKUP_IP)).reason, 'rate_limited');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 20261031110000_payment_links.sql: set_payment_window
+// ---------------------------------------------------------------------------
+const setWindow = (db: Db, id: string, hours: unknown) => call(db, 'public.set_payment_window($1::uuid, $2::int)', id, hours);
+
+Deno.test('set_payment_window: an awaiting_payment order gets now + p_hours, stock and status untouched; the expiry job honours it', async () => {
+  await withDb(async (db) => {
+    await plentyOfTees(db);
+    const secsFromNow = async (id: string) =>
+      Number((await rows(db, `select extract(epoch from (expires_at - now()))::int as s from public.orders where id = $1`, [id]))[0].s);
+    const near = (n: number, want: number, label: string) => assert(Math.abs(n - want) <= 5, `${label}: ${n} vs ${want}`);
+
+    const id = newId();
+    const placed = await placeV3(db, id, ORDER_2_TEES, { paymentMethod: 'online', delivery: { method: 'door', address: ADDR } }, EMAIL_CUSTOMER);
+    near(await secsFromNow(id), 30 * 60, 'checkout window');
+    const stock = await teeM(db);
+
+    const r = await setWindow(db, id, 48);
+    assertEquals(Object.keys(r).sort(), ['ok', 'order']);
+    assertEquals([r.ok, r.order.status, r.order.id], [true, 'awaiting_payment', id]);
+    near(await secsFromNow(id), 48 * 3600, '48 hours');
+    assert(Date.parse(r.order.expiresAt) > Date.now() + 47 * 3600 * 1000);
+    assertEquals(await teeM(db), stock);
+    assertEquals({ ...r.order, expiresAt: null }, { ...placed.order, expiresAt: null }); // nothing else changed
+    // It sets now + p_hours each time it is called (the caller makes sure it calls once).
+    await setWindow(db, id, 1);
+    near(await secsFromNow(id), 3600, '1 hour');
+    await setWindow(db, id, 720);
+    near(await secsFromNow(id), 720 * 3600, '720 hours');
+
+    // The job leaves an order inside its window alone, and expires it, returning stock, when the window is up.
+    await setWindow(db, id, 48);
+    await expireDue(db);
+    assertEquals((await orderRow(db, id)).status, 'awaiting_payment');
+    await setExpiry(db, id, `now() - interval '1 minute'`);
+    await expireDue(db);
+    assertEquals((await orderRow(db, id)).status, 'expired');
+    assertEquals(await teeM(db), stock + 2);
+  });
+});
+
+Deno.test('set_payment_window: every status but awaiting_payment is refused and unchanged; unknown id; p_hours outside 1 to 720 raises', async () => {
+  await withDb(async (db) => {
+    for (const status of STATUSES.filter((s) => s !== 'awaiting_payment')) {
+      for (const expires_at of [null, DUE]) {
+        const id = await insertOrder(db, status, { expires_at });
+        const before = await orderRow(db, id);
+        const r = await setWindow(db, id, 48);
+        assertEquals([r.ok, r.reason, r.order.status], [false, 'bad_status', status], status);
+        assertEquals(await orderRow(db, id), before, status); // the whole row, expiry included
+      }
+    }
+    assertEquals(await setWindow(db, newId(), 48), { ok: false, reason: 'not_found' });
+
+    const secsFromDue = async (id: string) =>
+      Number((await rows(db, `select extract(epoch from (expires_at - timestamptz '${DUE}'))::int as s from public.orders where id = $1`, [id]))[0].s);
+    const id = await insertOrder(db, 'awaiting_payment', { expires_at: DUE });
+    for (const bad of [0, -1, 721, null]) {
+      await assertRejects(() => setWindow(db, id, bad), Error, 'p_hours must be between 1 and 720');
+    }
+    assertEquals(await secsFromDue(id), 0);
+    assertEquals((await setWindow(db, id, 1)).ok, true);
+  });
+});
+
+Deno.test('set_payment_window: service role only, security definer, locks the order row and nothing else', async () => {
+  await withDb(async (db) => {
+    const acl = await rows(
+      db,
+      `select p.proname, p.prosecdef, p.proacl::text as acl
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'set_payment_window'`,
+    );
+    assertEquals(acl.length, 1);
+    assertEquals(acl[0].prosecdef, true);
+    assertEquals((acl[0].acl as string).replace(/^\{|\}$/g, '').split(',').some((e) => e.startsWith('=')), false, acl[0].acl);
+    assert(acl[0].acl.includes('service_role=X'), acl[0].acl);
+    const id = await insertOrder(db, 'awaiting_payment', { expires_at: DUE });
+    for (const role of ['anon', 'authenticated']) {
+      assertEquals(
+        (await rows(db, `select has_function_privilege($1, 'public.set_payment_window(uuid, int)', 'execute') as ok`, [role]))[0].ok,
+        false,
+        role,
+      );
+      await db.exec(`set role ${role}`);
+      try {
+        await assertRejects(() => setWindow(db, id, 48), Error, 'permission denied');
+      } finally {
+        await db.exec('reset role');
+      }
+    }
+    await db.exec('set role service_role');
+    try {
+      assertEquals((await setWindow(db, id, 48)).ok, true);
+    } finally {
+      await db.exec('reset role');
+    }
+  });
+  const text = await readMigration('20261031110000_payment_links.sql');
+  const start = text.indexOf('create or replace function public.set_payment_window(');
+  assert(start >= 0);
+  const body = text.slice(start, text.indexOf('\n$$;', start));
+  assertEquals(body.match(/for update/g)?.length, 1);
+  assert(!body.includes('product_variants'));
+});
+
+Deno.test('payment links migration is idempotent: a second run changes nothing and keeps the data', async () => {
+  await withDb(async (db) => {
+    const sql = await readMigration('20261031110000_payment_links.sql');
+    const dump = async () => ({
+      orders: await rows(db, 'select to_jsonb(o) as r from public.orders o order by o.id'),
+      functions: await rows(
+        db,
+        `select p.oid::regprocedure::text as sig, pg_get_functiondef(p.oid) as def, p.proacl::text as acl
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'set_payment_window' order by sig`,
+      ),
+    });
+    const id = await insertOrder(db, 'awaiting_payment', { expires_at: DUE });
+    await setWindow(db, id, 48);
+    const first = await dump();
+    assertEquals(first.functions.length, 1);
+    await db.exec(sql);
+    assertEquals(await dump(), first);
+  });
 });
 
 // ---------------------------------------------------------------------------
