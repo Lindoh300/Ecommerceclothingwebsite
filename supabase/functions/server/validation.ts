@@ -3,6 +3,7 @@ import type {
   Customer,
   DeliveryAddress,
   DeliveryInput,
+  DeliveryOptionPatch,
   EventInput,
   EventStatus,
   GalleryInput,
@@ -764,4 +765,21 @@ export function validateListSendTest(body: unknown): Result<ListSendInput & { to
   const addr = to.trim();
   if (addr.length > 254 || !EMAIL_RE.test(addr)) return { ok: false, error: 'to must be an email address' };
   return { ok: true, value: { ...v.value, to: addr } };
+}
+
+/** The body of PUT /admin/delivery-options/:id: name (trimmed, 1 to 60 characters), price (0 to 10000, at most 2 decimals) and active, all required. */
+export function validateDeliveryOptionInput(body: unknown): Result<DeliveryOptionPatch> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  if (typeof body.name !== 'string' || body.name.trim().length < 1 || body.name.trim().length > 60) {
+    return { ok: false, error: 'name must be text of 1 to 60 characters' };
+  }
+  const p = body.price;
+  if (
+    typeof p !== 'number' || !Number.isFinite(p) || p < 0 || p > 10000 ||
+    Math.abs(p * 100 - Math.round(p * 100)) > 1e-7
+  ) {
+    return { ok: false, error: 'price must be a number from 0 to 10000 with at most 2 decimals' };
+  }
+  if (typeof body.active !== 'boolean') return { ok: false, error: 'active must be true or false' };
+  return { ok: true, value: { name: body.name.trim(), price: p, active: body.active } };
 }

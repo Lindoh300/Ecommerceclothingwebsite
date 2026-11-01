@@ -11,9 +11,13 @@ import type {
   CheckInResult,
   CreateProductResult,
   DeleteCategoryResult,
+  CustomerStore,
+  CustomerSummary,
   DeliveryOption,
+  DeliveryOptionAdmin,
   DeleteEventResult,
   DeliveryOptionStore,
+  UpdateDeliveryOptionResult,
   Deps,
   EventStore,
   ListSendRecipient,
@@ -183,6 +187,12 @@ const categories: CategoryStore = {
 
 const deliveryOptions: DeliveryOptionStore = {
   list: () => rpc<DeliveryOption[]>('list_delivery_options', {}),
+  listAll: () => rpc<DeliveryOptionAdmin[]>('list_delivery_options_admin', {}),
+  update: (id, patch) => rpc<UpdateDeliveryOptionResult>('update_delivery_option', { p_id: id, p_patch: patch }),
+};
+
+const customers: CustomerStore = {
+  list: () => rpc<CustomerSummary[]>('list_customers', {}),
 };
 
 // Events and tickets. Every function locks the ticket_types row it changes (see the header of the migration), so a
@@ -287,6 +297,7 @@ const listSends: ListSendStore = {
 const deps: Deps = {
   products,
   deliveryOptions,
+  customers,
   categories,
   orders,
   events,

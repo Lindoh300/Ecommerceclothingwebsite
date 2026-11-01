@@ -35,7 +35,10 @@ import type {
   CreateProductResult,
   Customer,
   DeleteCategoryResult,
+  CustomerStore,
+  CustomerSummary,
   DeliveryOption,
+  UpdateDeliveryOptionResult,
   DeliveryOptionStore,
   DeleteEventResult,
   Deps,
@@ -109,9 +112,28 @@ export const createMemoryDb = (): MemoryDb => ({
   deliveryOptions: seedDeliveryOptions(),
 });
 
-/** Mirrors list_delivery_options: active options, in sort order. */
-export function memoryDeliveryOptions(db: MemoryDb): DeliveryOptionStore {
+/** Mirrors list_delivery_options and the admin pair: active options in sort order; every option; the locked edit. */
+export function memoryDeliveryOptions(db: MemoryDb, lock: Lock = createLock()): DeliveryOptionStore {
+  const sorted = () => [...db.deliveryOptions.values()].sort((a, b) => a.sort - b.sort || cmp(a.id, b.id));
   return {
+    listAll: () =>
+      Promise.resolve(sorted().map(({ id, name, price, sort, active }) => ({ id, name, price, sort, active }))),
+    update: (id, patch) =>
+      lock<UpdateDeliveryOptionResult>(() => {
+        const row = db.deliveryOptions.get(id);
+        if (!row) return Promise.resolve({ ok: false, reason: 'not_found' });
+        if (
+          row.active && !patch.active &&
+          ![...db.deliveryOptions.values()].some((o) => o.active && o.id !== id)
+        ) {
+          return Promise.resolve({ ok: false, reason: 'last_active' });
+        }
+        row.name = patch.name;
+        row.price = patch.price;
+        row.active = patch.active;
+        const { name, price, sort, active } = row;
+        return Promise.resolve({ ok: true, option: { id, name, price, sort, active } });
+      }),
     list: () =>
       Promise.resolve(
         [...db.deliveryOptions.values()]
@@ -1272,6 +1294,51 @@ export function memoryCommunity(
   };
 }
 
+// --- Customers: mirrors list_customers in 20261031180000_customers.sql ---------------------------------------------
+
+/** lookup_order's phone key: the digits only, the last 9 of them. */
+const phoneKey = (phone: string | undefined | null): string => (phone ?? '').replace(/\D/g, '').slice(-9);
+
+/** list_customers: every order grouped by phoneKey. Reads both lists through their stores (which take their own locks). */
+export function memoryCustomers(
+  listOrders: () => Promise<Order[]>,
+  listSubscribers: () => Promise<Subscriber[]>,
+): CustomerStore {
+  return {
+    async list() {
+      const orders = await listOrders();
+      const subs = await listSubscribers();
+      // Newest first; the same created_at breaks on the lower id, as the SQL orders its array_agg.
+      const newest = [...orders].sort((a, b) => cmp(b.createdAt, a.createdAt) || cmp(a.id, b.id));
+      const groups = new Map<string, Order[]>();
+      for (const o of newest) {
+        const k = phoneKey(o.customer.phone);
+        const g = groups.get(k);
+        if (g) g.push(o);
+        else groups.set(k, [o]);
+      }
+      const subscribed = new Set(subs.filter((s) => !s.unsubscribedAt && s.phone).map((s) => phoneKey(s.phone)));
+      const out: CustomerSummary[] = [];
+      for (const [k, g] of groups) {
+        const top = g[0];
+        const spent = g
+          .filter((o) => ['paid', 'packed', 'shipped', 'delivered'].includes(o.status))
+          .reduce((sum, o) => sum + Math.round(o.total * 100), 0) / 100;
+        out.push({
+          phone: top.customer.phone,
+          name: top.customer.name,
+          email: g.map((o) => o.customer.email?.trim()).find((e) => !!e) ?? null,
+          orders: g.filter((o) => o.status !== 'cancelled' && o.status !== 'expired').length,
+          spent,
+          lastOrderAt: top.createdAt,
+          subscribed: k.length >= 7 && subscribed.has(k),
+        });
+      }
+      return out.sort((a, b) => cmp(b.lastOrderAt, a.lastOrderAt) || cmp(a.phone, b.phone));
+    },
+  };
+}
+
 // --- Restock alerts: mirrors 20261031150000_restock_alerts.sql ---------------------------------------------------
 
 /** Requests older than this are deleted, at most RESTOCK_PURGE_BATCH per call. */
@@ -1561,11 +1628,13 @@ export async function createMemoryDeps(
     takeSlot,
     (contact) => restock.removeContact(contact),
   );
+  const orders = memoryOrders(db, lock, now);
   const deps: Deps & { orders: MemoryOrderStore } = {
     products,
     categories: memoryCategories(db, lock),
-    deliveryOptions: memoryDeliveryOptions(db),
-    orders: memoryOrders(db, lock, now),
+    deliveryOptions: memoryDeliveryOptions(db, lock),
+    customers: memoryCustomers(() => orders.list(), () => community.listSubscribers()),
+    orders,
     events,
     community,
     restock,

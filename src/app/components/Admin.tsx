@@ -11,8 +11,10 @@ import { ApiError } from "../api/client";
 import { AdminDashboard } from "./AdminDashboard";
 import { AdminOrders } from "./AdminOrders";
 import { AdminNewOrder } from "./AdminNewOrder";
+import { AdminCustomers } from "./AdminCustomers";
 import { AdminProducts } from "./AdminProducts";
 import { AdminCategoriesSection } from "./AdminCategories";
+import { AdminDelivery } from "./AdminDelivery";
 import { AdminEvents } from "./AdminEvents";
 import { AdminDoor } from "./AdminDoor";
 import { AdminCommunity } from "./AdminCommunity";
@@ -27,8 +29,10 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { id: "dashboard", label: "Dashboard", Component: AdminDashboard },
   { id: "orders", label: "Orders", Component: AdminOrders },
   { id: "new-order", label: "New order", Component: AdminNewOrder },
+  { id: "customers", label: "Customers", Component: AdminCustomers },
   { id: "products", label: "Products", Component: AdminProducts },
   { id: "categories", label: "Categories", Component: AdminCategoriesSection },
+  { id: "delivery", label: "Delivery", Component: AdminDelivery },
   { id: "events", label: "Events", Component: AdminEvents },
   { id: "door", label: "Door", Component: AdminDoor },
   { id: "community", label: "Community", Component: AdminCommunity },

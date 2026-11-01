@@ -358,9 +358,30 @@ export interface CategoryStore {
   remove(id: string): Promise<DeleteCategoryResult>;
 }
 
+/** An option as the admin sees it: inactive ones included. */
+export interface DeliveryOptionAdmin extends DeliveryOption {
+  sort: number;
+  active: boolean;
+}
+
+/** What PUT /admin/delivery-options/:id takes; all three are required. */
+export interface DeliveryOptionPatch {
+  name: string;
+  price: number;
+  active: boolean;
+}
+
+export type UpdateDeliveryOptionResult =
+  | { ok: true; option: DeliveryOptionAdmin }
+  | { ok: false; reason: 'not_found' | 'last_active' };
+
 export interface DeliveryOptionStore {
   /** Active options only, in sort order. */
   list(): Promise<DeliveryOption[]>;
+  /** Every option, active or not, ordered by sort then id (list_delivery_options_admin). */
+  listAll(): Promise<DeliveryOptionAdmin[]>;
+  /** Sets name, price and active (update_delivery_option). The last active option cannot be turned off. */
+  update(id: string, patch: DeliveryOptionPatch): Promise<UpdateDeliveryOptionResult>;
 }
 
 // --- Events and tickets (20261031120000_events.sql) ------------------------------------------------------------
@@ -530,9 +551,27 @@ export interface EventStore {
   voidTicket(code: string): Promise<VoidResult>;
 }
 
+/** One customer of the owner's list: every order grouped by phone (list_customers). `spent` is paid, packed, shipped and
+ *  delivered orders only; `orders` leaves out cancelled and expired. */
+export interface CustomerSummary {
+  phone: string;
+  name: string;
+  email: string | null;
+  orders: number;
+  spent: number;
+  lastOrderAt: string;
+  subscribed: boolean;
+}
+
+export interface CustomerStore {
+  /** Newest last order first, then phone. Built from the orders and the mailing list, never stored. */
+  list(): Promise<CustomerSummary[]>;
+}
+
 export interface Deps {
   products: ProductStore;
   deliveryOptions: DeliveryOptionStore;
+  customers: CustomerStore;
   categories: CategoryStore;
   orders: OrderStore;
   events: EventStore;

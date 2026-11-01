@@ -112,6 +112,19 @@ export interface DeliveryOption {
   price: number
 }
 
+/** A delivery option as the admin sees it: inactive ones too. */
+export interface DeliveryOptionAdmin extends DeliveryOption {
+  sort: number
+  active: boolean
+}
+
+/** What the admin saves for a delivery option. */
+export interface DeliveryOptionInput {
+  name: string
+  price: number
+  active: boolean
+}
+
 /** The delivery stored on a placed order. */
 export interface OrderDelivery {
   method: string
@@ -398,4 +411,15 @@ export interface ListSendSummary {
   createdAt: string
   /** null until no recipient is pending or sending. */
   finishedAt: string | null
+}
+
+/** A customer as the owner sees them, one row per phone number. `spent` is in Rand. Newest last order first. */
+export interface CustomerSummary {
+  phone: string
+  name: string
+  email: string | null
+  orders: number
+  spent: number
+  lastOrderAt: string
+  subscribed: boolean
 }

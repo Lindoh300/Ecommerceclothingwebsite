@@ -3,6 +3,8 @@ import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
 import { registerCommunityRoutes } from './community_routes.ts';
 import { registerListSendRoutes } from './list_send_routes.ts';
+import { registerCustomerRoutes } from './customers_routes.ts';
+import { registerDeliveryRoutes } from './delivery_routes.ts';
 import { registerRestockRoutes } from './restock_routes.ts';
 import { registerEventRoutes } from './events_routes.ts';
 import { type EmailMessage, type Mailer, orderReceivedEmail, orderShippedEmail, paymentReceivedEmail } from './mailer.ts';
@@ -167,6 +169,12 @@ export function createApp(deps: Deps): Hono {
 
   // Restock alerts (Phase F): customers ask to be told, the owner sees who waits, restock_routes.ts.
   registerRestockRoutes(app, deps, guard);
+
+  // Delivery options (admin read and edit of rates), delivery_routes.ts.
+  registerDeliveryRoutes(app, deps, guard);
+
+  // Customer list (admin, read-only, built from orders), customers_routes.ts.
+  registerCustomerRoutes(app, deps, guard);
 
   // Sending to the mailing list (Phase F): the owner writes an email and sends it in batches, list_send_routes.ts.
   registerListSendRoutes(app, deps, guard);
