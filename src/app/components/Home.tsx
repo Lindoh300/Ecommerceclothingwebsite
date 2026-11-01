@@ -47,7 +47,7 @@ export function Home() {
       <section className="border-b border-b10 px-4 sm:px-6 py-12 md:py-16">
         <div className="max-w-[1360px] mx-auto">
           <p className="micro text-b60 mb-2">South African clothing</p>
-          <h1 className="display h-sec mb-3">4Nguru The Brand Online</h1>
+          <h1 className="display h-sec mb-3">4Nguru The Brand</h1>
           <p className="text-b60 max-w-prose mb-6">
             Premium quality clothing for every occasion. Shop online, or message us on WhatsApp to order. We deliver across South Africa.
           </p>

@@ -41,6 +41,7 @@ li:first-child > .ev-row { border-top: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .cm-photo img { transition: none; }
+  .cm-spot-tile:nth-child(n) { transform: none; }
   .ev-poster-img > *, .ev-row-go svg { transition: none; }
   a.ev-poster:hover .ev-poster-img > * { transform: none; }
   .ev-row:hover .ev-row-go svg { transform: none; }
@@ -76,9 +77,16 @@ li:first-child > .ev-row { border-top: 0; }
 .cm-join > * { min-width: 0; }
 .cm-join-form { display: grid; gap: 20px; justify-items: start; }
 .cm-join-form > form { width: 100%; }
+.cm-spot-grid { list-style: none; margin: 0 0 24px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cm-spot-tile { position: relative; aspect-ratio: 4 / 5; overflow: hidden; border: 1px dashed var(--b40); border-radius: var(--radius-card); background: var(--b5); }
+.cm-spot-tile:nth-child(3n + 2) { transform: rotate(1.2deg); }
+.cm-spot-tile:nth-child(3n) { transform: rotate(-1.2deg); }
+.cm-spot-fig { width: 100%; height: 100%; object-fit: cover; opacity: 0.35; }
+.cm-spot-tag { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; text-align: center; background: var(--paper); color: var(--ink); border-radius: var(--radius-chip); font-size: 12px; }
 
 @media (min-width: 640px) {
   .cm-photos { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cm-spot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (min-width: 820px) {
   .ev-feature { grid-template-columns: minmax(300px, 460px) 1fr; gap: 64px; }
@@ -89,6 +97,7 @@ li:first-child > .ev-row { border-top: 0; }
 }
 @media (min-width: 1024px) {
   .cm-photos { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .cm-spot-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 
 /* On a Mist band, quiet pills and the empty-photo poster switch to paper so they stay visible. */

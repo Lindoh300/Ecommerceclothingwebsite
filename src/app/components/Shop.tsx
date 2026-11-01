@@ -1,6 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useSearchParams } from "react-router";
-import { SlidersHorizontal } from "lucide-react";
 import type { Product } from "../api/types";
 import { useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
@@ -78,62 +77,45 @@ function sortProducts(list: Product[], sort: Sort): Product[] {
   return copy.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.name.localeCompare(b.name, "en")));
 }
 
-const chipClass = (selected: boolean) =>
-  `r-chip min-h-[40px] max-w-full break-words px-4 py-2 border text-sm transition-colors motion-reduce:transition-none ${
-    selected ? "bg-ink text-paper border-ink" : "bg-paper text-ink border-b10 hover:border-ink"
-  }`;
-
-function ChipGroup({
+function FilterSelect({
+  id,
   label,
+  allLabel,
   options,
   value,
   onChange,
-  allLabel,
 }: {
+  id: string;
   label: string;
+  allLabel: string;
   options: { value: string; label: string; count?: number }[];
   value: string;
   onChange: (next: string) => void;
-  /** Adds a first chip with this label that is pressed when nothing is chosen and clears the choice. */
-  allLabel?: { label: string; count?: number };
 }) {
   if (options.length === 0) return null;
-  const count = (n?: number) => (n === undefined ? null : <span className="shop-chip-count"> {n}</span>);
+  // A value from an old link that is no longer on offer still shows, so the dropdown matches what is filtered.
+  const known = value === "" || options.some((o) => o.value === value);
   return (
-    <div role="group" aria-label={label} className="shop-filter-row">
-      <p className="micro text-b60 mb-2">{label}</p>
-      <div className="flex flex-wrap gap-2">
-        {allLabel && (
-          <button
-            type="button"
-            aria-pressed={value === ""}
-            onClick={() => onChange("")}
-            className={chipClass(value === "")}
-          >
-            {allLabel.label}
-            {count(allLabel.count)}
-          </button>
-        )}
+    <div className="shop-filter">
+      <label htmlFor={id} className="micro text-b60 mb-2 block">{label}</label>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="r-chip h-10 w-full border border-b10 bg-paper px-3 text-sm text-ink"
+      >
+        <option value="">{allLabel}</option>
         {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            aria-pressed={value === o.value}
-            onClick={() => onChange(value === o.value ? "" : o.value)}
-            className={chipClass(value === o.value)}
-          >
-            {o.label}
-            {count(o.count)}
-          </button>
+          <option key={o.value} value={o.value}>{o.count === undefined ? o.label : `${o.label} (${o.count})`}</option>
         ))}
-      </div>
+        {!known && <option value={value}>{value}</option>}
+      </select>
     </div>
   );
 }
 
 export function Shop() {
   const [params, setParams] = useSearchParams();
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const { products: allProducts, loading: productsLoading, error: productsError, reload } = useProducts();
   const { categories } = useCategories();
   const f = readFilters(params);
@@ -191,63 +173,58 @@ export function Shop() {
         )}
 
         <LoadState loading={productsLoading} error={productsError} onRetry={() => reload().catch(() => {})}>
-          {isGallery && (
-            <button
-              type="button"
-              className="cta cta-quiet shop-filters-toggle"
-              aria-expanded={filtersOpen}
-              aria-controls="shop-filters"
-              onClick={() => setFiltersOpen((open) => !open)}
-            >
-              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-              Filters{activeCount > 0 ? ` (${activeCount})` : ""}
-            </button>
-          )}
-          <div
-            id="shop-filters"
-            data-open={filtersOpen}
-            className="shop-filters mb-10 flex flex-col gap-6 border-y border-b10 py-6"
-            role="search"
-            aria-label="Filter products"
-          >
-            <ChipGroup
+          <div className="shop-filters mb-10" role="search" aria-label="Filter products">
+            <FilterSelect
+              id="shop-category"
               label="Category"
+              allLabel={`All (${products.length})`}
               options={categoryOptions}
               value={f.category}
               onChange={(v) => update({ category: v })}
-              allLabel={{ label: "All", count: products.length }}
             />
-            <ChipGroup label="Size" options={sizes.map((s) => ({ value: s, label: s }))} value={f.size} onChange={(v) => update({ size: v })} />
-            <ChipGroup label="Colour" options={colors.map((c) => ({ value: c, label: c }))} value={f.color} onChange={(v) => update({ color: v })} />
-            <div className="shop-filter-last">
-              <div className="shop-sort">
-                <label htmlFor="shop-sort" className="micro text-b60 mb-2 block">Sort</label>
-                <select
-                  id="shop-sort"
-                  value={f.sort}
-                  onChange={(e) => update({ sort: e.target.value })}
-                  className="r-chip h-10 w-full border border-b10 bg-paper px-3 text-sm text-ink"
-                >
-                  {SORTS.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-              <label className="flex min-h-[40px] cursor-pointer items-center gap-3 text-sm">
-                <input
-                  type="checkbox"
-                  checked={f.inStock}
-                  onChange={(e) => update({ stock: e.target.checked ? "1" : "" })}
-                  className="h-5 w-5 accent-[var(--brand)]"
-                />
-                In stock only
-              </label>
-              {activeCount > 0 && (
-                <button type="button" onClick={clear} className="linkr text-ink">
-                  Clear filters ({activeCount})
-                </button>
-              )}
+            <FilterSelect
+              id="shop-size"
+              label="Size"
+              allLabel="All sizes"
+              options={sizes.map((s) => ({ value: s, label: s }))}
+              value={f.size}
+              onChange={(v) => update({ size: v })}
+            />
+            <FilterSelect
+              id="shop-colour"
+              label="Colour"
+              allLabel="All colours"
+              options={colors.map((c) => ({ value: c, label: c }))}
+              value={f.color}
+              onChange={(v) => update({ color: v })}
+            />
+            <div className="shop-filter">
+              <label htmlFor="shop-sort" className="micro text-b60 mb-2 block">Sort</label>
+              <select
+                id="shop-sort"
+                value={f.sort}
+                onChange={(e) => update({ sort: e.target.value })}
+                className="r-chip h-10 w-full border border-b10 bg-paper px-3 text-sm text-ink"
+              >
+                {SORTS.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
             </div>
+            <label className="shop-instock flex min-h-[40px] cursor-pointer items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={f.inStock}
+                onChange={(e) => update({ stock: e.target.checked ? "1" : "" })}
+                className="h-5 w-5 accent-[var(--brand)]"
+              />
+              In stock only
+            </label>
+            {activeCount > 0 && (
+              <button type="button" onClick={clear} className="linkr shop-clear text-ink">
+                Clear filters ({activeCount})
+              </button>
+            )}
           </div>
 
           {visible.length === 0 ? (

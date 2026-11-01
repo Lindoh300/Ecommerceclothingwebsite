@@ -1,14 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 import type { Category, Product } from "../api/types";
 import { shop, whatsappLink } from "../config/shop";
 import { ProductGrid } from "./ProductGrid";
-import { ProductSearch } from "./ProductSearch";
 import { LoadState } from "./common";
-import { CategoryMosaic, DropTile, HearItFirst, NextEvent, OrderYourWay, Ticker } from "./HomeTiles";
-
-const DEFAULT_PLACEHOLDER = "Search products";
-const STEP_MS = 2400;
+import { CategoryMosaic, DropTile, HearItFirst, NextEvent, OrderYourWay } from "./HomeTiles";
 
 interface HomeGalleryProps {
   products: Product[];
@@ -33,28 +29,7 @@ export function HomeGallery({
   reloadCategories,
   featured,
 }: HomeGalleryProps) {
-  const [placeholder, setPlaceholder] = useState(DEFAULT_PLACEHOLDER);
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
-
-  // Step through the category names once, then settle back on the default. Browser APIs only in the effect.
-  const names = categories.filter((c) => c.active !== false).map((c) => c.name);
-  const namesKey = names.join("\n");
-  useEffect(() => {
-    if (!namesKey) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const list = namesKey.split("\n");
-    let i = 0;
-    const timer = window.setInterval(() => {
-      if (i < list.length) {
-        setPlaceholder(`Search for ${list[i].toLowerCase()}`);
-        i += 1;
-      } else {
-        setPlaceholder(DEFAULT_PLACEHOLDER);
-        window.clearInterval(timer);
-      }
-    }, STEP_MS);
-    return () => window.clearInterval(timer);
-  }, [namesKey]);
 
   const markFailed = (src: string) => setFailed((prev) => new Set(prev).add(src));
   // The first featured product is the hero tile; the photo stack takes the next ones.
@@ -69,9 +44,9 @@ export function HomeGallery({
       <section className={`gallery-hero hero-split${showTile ? "" : " hero-solo"}`}>
         <div className="hero-copy">
           <h1 className="display gallery-hero-title">
-            Find your
+            For the
             <br />
-            next fit
+            culture.
             {stackImages.length > 0 && (
               <span className="gallery-hero-stack" aria-hidden="true">
                 {stackImages.map((p) => (
@@ -80,7 +55,6 @@ export function HomeGallery({
               </span>
             )}
           </h1>
-          <ProductSearch placeholder={placeholder} />
           <div className="gallery-hero-actions">
             <Link to="/shop" className="cta">Shop all</Link>
             <a
@@ -92,12 +66,10 @@ export function HomeGallery({
               Ask on WhatsApp
             </a>
           </div>
-          <p className="gallery-hero-note">Premium quality clothing for every occasion. Shop online, or message us on WhatsApp to order. We deliver across South Africa.</p>
+          <p className="gallery-hero-note">Fits for the streets, the stage and the front row. Order online or on WhatsApp, delivered across South Africa.</p>
         </div>
         {showTile && <DropTile product={featured[0]} />}
       </section>
-
-      <Ticker />
 
       <NextEvent />
 

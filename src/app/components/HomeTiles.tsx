@@ -38,33 +38,6 @@ export function DropTile({ product }: { product?: Product }) {
   );
 }
 
-const TICKER_ITEMS = [
-  "Order online or on WhatsApp",
-  "Door or locker delivery",
-  "Delivered across South Africa",
-  "T-shirts, jerseys, shorts and more",
-  "Events and community",
-];
-
-export function Ticker() {
-  return (
-    <div className="ticker">
-      <div className="ticker-track">
-        <ul className="ticker-set">
-          {TICKER_ITEMS.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ul>
-        <ul className="ticker-set ticker-set-copy" aria-hidden="true">
-          {TICKER_ITEMS.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 function firstSentence(text: string): string {
   const t = text.trim();
   const m = t.match(/^[\s\S]*?[.!?](?=\s|$)/);

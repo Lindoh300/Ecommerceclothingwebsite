@@ -77,7 +77,7 @@ function event(overrides: Partial<PublicEvent> = {}): PublicEvent {
 describe('constants', () => {
   it('pins the site name, titles, fallback image and robots value', () => {
     expect(SITE_NAME).toBe('4Nguru')
-    expect(SITE_TITLE).toBe('4Nguru The Brand Online')
+    expect(SITE_TITLE).toBe('4Nguru The Brand')
     expect(SITE_DESCRIPTION).toBe(
       'South African clothing brand. T-shirts, jerseys, shorts, pants and accessories. Shop online or order on WhatsApp.',
     )
@@ -226,7 +226,7 @@ describe('defaultMeta', () => {
   it('describes the whole site at the origin root by default', () => {
     const tags = defaultMeta(ORIGIN)
     const keys = byKey(tags)
-    expect(keys.title).toBe('4Nguru The Brand Online')
+    expect(keys.title).toBe('4Nguru The Brand')
     expect(keys['name:description']).toBe(SITE_DESCRIPTION)
     expect(keys['property:og:url']).toBe('https://4nguru.example/')
     expect(keys['name:robots']).toBe('noindex, nofollow')
@@ -241,7 +241,7 @@ describe('defaultMeta', () => {
 describe('homeMeta', () => {
   it('builds the home title, description with the shop phone, and canonical root', () => {
     const keys = byKey(homeMeta(ORIGIN))
-    expect(keys.title).toBe('4Nguru The Brand Online | Clothing')
+    expect(keys.title).toBe('4Nguru The Brand | Clothing')
     expect(shop.phone).toBe('+27 67 868 4428')
     expect(keys['name:description']).toBe(
       'Shop 4Nguru clothing online and order on WhatsApp. Delivery across South Africa. Call or WhatsApp +27 67 868 4428.',
@@ -280,7 +280,7 @@ describe('categoryMeta', () => {
     const keys = byKey(categoryMeta(ORIGIN, 'tshirts', '/tshirts'))
     expect(keys.title).toBe('T-Shirts | 4Nguru')
     expect(keys['name:description']).toBe(
-      'Shop T-Shirts from 4Nguru The Brand Online. Order on WhatsApp, delivery across South Africa.',
+      'Shop T-Shirts from 4Nguru The Brand. Order on WhatsApp, delivery across South Africa.',
     )
     expect(keys['link:canonical']).toBe('https://4nguru.example/tshirts')
     expect(keys['property:og:url']).toBe('https://4nguru.example/tshirts')
@@ -367,7 +367,7 @@ describe('productMeta', () => {
 
   it('writes a line about the product when the description is empty', () => {
     const keys = byKey(productMeta(ORIGIN, product({ description: '' })))
-    expect(keys['name:description']).toBe('Classic Cotton T-Shirt from 4Nguru The Brand Online.')
+    expect(keys['name:description']).toBe('Classic Cotton T-Shirt from 4Nguru The Brand.')
   })
 
   it('collapses whitespace in the description', () => {
@@ -382,7 +382,7 @@ describe('productMeta', () => {
 
   it('falls back to the product line when the description is only spaces', () => {
     const keys = byKey(productMeta(ORIGIN, product({ description: '   ' })))
-    expect(keys['name:description']).toBe('Classic Cotton T-Shirt from 4Nguru The Brand Online.')
+    expect(keys['name:description']).toBe('Classic Cotton T-Shirt from 4Nguru The Brand.')
   })
 
   it('keeps quotes and angle brackets in the name as plain data', () => {
@@ -446,7 +446,7 @@ describe('eventMeta', () => {
     const keys = byKey(
       eventMeta(ORIGIN, event({ startsAt: 'not a date', venue: '', city: '', description: '' })),
     )
-    expect(keys['name:description']).toBe('Summer Run from 4Nguru The Brand Online.')
+    expect(keys['name:description']).toBe('Summer Run from 4Nguru The Brand.')
   })
 
   it('uses the event image, made absolute, and the default image when there is none', () => {

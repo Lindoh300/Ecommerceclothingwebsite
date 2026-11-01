@@ -6,7 +6,7 @@ import { shop } from "../config/shop";
 import { formatEventDate } from "../utils/eventTime";
 
 export const SITE_NAME = "4Nguru";
-export const SITE_TITLE = "4Nguru The Brand Online";
+export const SITE_TITLE = "4Nguru The Brand";
 export const SITE_DESCRIPTION =
   "South African clothing brand. T-shirts, jerseys, shorts, pants and accessories. Shop online or order on WhatsApp.";
 export const OG_FALLBACK_IMAGE = "/images/og-default.png";
@@ -109,7 +109,7 @@ export function categoryMeta(origin: string, id: string, path: string): MetaDesc
   return pageMeta({
     origin,
     title: `${label} | 4Nguru`,
-    description: `Shop ${label} from 4Nguru The Brand Online. Order on WhatsApp, delivery across South Africa.`,
+    description: `Shop ${label} from 4Nguru The Brand. Order on WhatsApp, delivery across South Africa.`,
     path,
     canonical: path,
   });
@@ -123,7 +123,7 @@ export function productMeta(origin: string, product: Product): MetaDescriptor[] 
   const path = productPath(product);
   const image = product.images?.find(Boolean) || product.image || undefined;
   // A blank or whitespace-only description uses the same fallback as a missing one.
-  const own = product.description?.trim() ? product.description : `${product.name} from 4Nguru The Brand Online.`;
+  const own = product.description?.trim() ? product.description : `${product.name} from 4Nguru The Brand.`;
   const description = truncate(own, 160);
   return pageMeta({
     origin,
@@ -150,7 +150,7 @@ export function eventMeta(origin: string, event: PublicEvent): MetaDescriptor[] 
   const where = [event.venue, event.city].filter(Boolean).join(", ");
   const when = [formatEventDate(event.startsAt), where].filter(Boolean).join(" at ");
   const description = truncate(
-    [when, event.description].filter(Boolean).join(". ") || `${event.title} from 4Nguru The Brand Online.`,
+    [when, event.description].filter(Boolean).join(". ") || `${event.title} from 4Nguru The Brand.`,
     160,
   );
   return pageMeta({

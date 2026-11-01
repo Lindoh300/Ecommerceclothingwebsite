@@ -7,7 +7,8 @@ import {
   ScrollRestoration,
 } from "react-router";
 import type { Route } from "./+types/root";
-import { theme } from "./config/theme";
+import { theme, isGallery } from "./config/theme";
+import { MODE_SCRIPT } from "./config/mode";
 import { Root } from "./components/Root";
 import { defaultMeta, originOf } from "./lib/seo";
 import "../styles/index.css";
@@ -23,10 +24,11 @@ export const meta: Route.MetaFunction = ({ data, location }) =>
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-theme={theme}>
+    <html lang="en" data-theme={theme} suppressHydrationWarning>
       <head>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        {isGallery && <script dangerouslySetInnerHTML={{ __html: MODE_SCRIPT }} />}
         <style>{"html, body { height: 100%; margin: 0; }"}</style>
         <Meta />
         <Links />

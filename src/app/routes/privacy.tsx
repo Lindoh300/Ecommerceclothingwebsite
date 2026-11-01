@@ -6,7 +6,7 @@ export const meta: Route.MetaFunction = ({ matches, location }) =>
   pageMeta({
     origin: originFromMatches(matches),
     title: "Privacy | 4Nguru",
-    description: "What 4Nguru The Brand Online collects when you shop with us, why, and how to ask about it.",
+    description: "What 4Nguru The Brand collects when you shop with us, why, and how to ask about it.",
     path: location.pathname,
     canonical: location.pathname,
   });

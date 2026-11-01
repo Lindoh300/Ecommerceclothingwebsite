@@ -1,5 +1,5 @@
 export const shop = {
-  name: "4Nguru The Brand Online",
+  name: "4Nguru The Brand",
   email: "malandela03@gmail.com",
   phone: "+27 67 868 4428",        // display format
   whatsappNumber: "27678684428",   // international, digits only, for wa.me

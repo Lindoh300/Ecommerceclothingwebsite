@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { MessageCircle } from "lucide-react";
+import { Instagram, MessageCircle } from "lucide-react";
 import { getGallery } from "../api/community";
 import { listEvents } from "../api/events";
 import type { PublicEvent, PublicGalleryItem } from "../api/types";
-import { whatsappLink } from "../config/shop";
+import { shop, whatsappLink } from "../config/shop";
+import { useProducts } from "../hooks/useProducts";
 import { EventRow } from "./EventTiles";
 import { SubscribeForm } from "./SubscribeForm";
 import { LoadState } from "./common/LoadState";
@@ -12,13 +13,15 @@ import { ProductImage } from "./common/ProductImage";
 
 const errorText = (err: unknown, what: string) => (err instanceof Error ? err.message : `Could not load ${what}`);
 
-/** Community: photos from events, past events, and the mailing-list sign-up. */
+const SPOT_SLOTS = [0, 1, 2, 3, 4, 5];
+
+/** Community: upcoming events, photos, your fit, and the mailing-list sign-up. */
 export function Community() {
   const [gallery, setGallery] = useState<PublicGalleryItem[] | null>(null);
   const [galleryError, setGalleryError] = useState<string | null>(null);
-  const [past, setPast] = useState<PublicEvent[] | null>(null);
-  const [pastError, setPastError] = useState<string | null>(null);
   const [upcoming, setUpcoming] = useState<PublicEvent[]>([]);
+  const { products } = useProducts();
+  const spotted = products.filter((p) => p.active !== false && p.image).slice(0, 6);
   const live = useRef(true);
 
   const loadGallery = useCallback(async () => {
@@ -28,16 +31,6 @@ export function Community() {
       if (live.current) setGallery(list);
     } catch (err) {
       if (live.current) setGalleryError(errorText(err, "photos"));
-    }
-  }, []);
-
-  const loadPast = useCallback(async () => {
-    setPastError(null);
-    try {
-      const list = await listEvents(true);
-      if (live.current) setPast(list);
-    } catch (err) {
-      if (live.current) setPastError(errorText(err, "past events"));
     }
   }, []);
 
@@ -53,12 +46,11 @@ export function Community() {
   useEffect(() => {
     live.current = true;
     loadGallery();
-    loadPast();
     loadUpcoming();
     return () => {
       live.current = false;
     };
-  }, [loadGallery, loadPast, loadUpcoming]);
+  }, [loadGallery, loadUpcoming]);
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
@@ -67,7 +59,7 @@ export function Community() {
           <p className="page-kicker micro text-b60 mb-3">4Nguru</p>
           <h1 className="display h-sec mb-4">Community</h1>
           <p className="page-sub">
-            Photos from our events, the nights that came before, and a way to hear about the next one.
+            Photos from our events, your fits, and a way to hear about the next night.
           </p>
         </header>
 
@@ -115,25 +107,21 @@ export function Community() {
           </LoadState>
         </section>
 
-        <section aria-labelledby="community-past">
-          <h2 id="community-past" className="display h-mid mb-6">
-            Past events
-          </h2>
-          <LoadState loading={past === null && pastError === null} error={pastError} onRetry={loadPast}>
-            {past && past.length === 0 ? (
-              <div className="border border-b10 r-card p-12 text-center">
-                <p className="text-b60">Past events will be listed here.</p>
-              </div>
-            ) : (
-              <ul>
-                {(past ?? []).map((e) => (
-                  <li key={e.id}>
-                    <EventRow event={e} action="Details" />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </LoadState>
+        <section aria-labelledby="community-fit">
+          <h2 id="community-fit" className="display h-sec mb-4">Your fit, here</h2>
+          <p className="page-sub mb-6">Wear it, post it, tag us, and your photo can land on this wall.</p>
+          <ul className="cm-spot-grid" aria-hidden="true">
+            {SPOT_SLOTS.map((slot) => (
+              <li key={slot} className="cm-spot-tile">
+                {spotted[slot] && <img src={spotted[slot].image} alt="" className="cm-spot-fig" />}
+                <span className="cm-spot-tag">Your photo here</span>
+              </li>
+            ))}
+          </ul>
+          <a href={shop.social.instagram} target="_blank" rel="noopener noreferrer" className="cta cta-quiet">
+            <Instagram className="w-4 h-4" aria-hidden="true" />
+            Tag us on Instagram
+          </a>
         </section>
 
         <section aria-labelledby="community-join" className="band-tile cm-join">

@@ -1,11 +1,12 @@
 /* Shop and product page layout classes. Tokens only, so they work in every theme. */
 
-/* Shop filters: full-width rows, label above chips */
-.shop-filter-row { min-width: 0; }
-.shop-chip-count { color: var(--b60); }
-.shop-filters [aria-pressed="true"] .shop-chip-count { color: inherit; }
-.shop-filter-last { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 32px; }
-.shop-sort { width: 100%; max-width: 280px; }
+/* Shop filters: dropdowns in two columns on phones, one row from 768px */
+.shop-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.shop-filter { min-width: 0; }
+.shop-instock, .shop-clear { grid-column: 1 / -1; }
+@media (min-width: 768px) {
+  .shop-filters { display: flex; flex-wrap: wrap; gap: 12px 16px; }
+  .shop-filter { flex: 1 1 0; min-width: 140px; max-width: 240px; }}
 
 /* Product page */
 .pdp-crumbs { font-size: 14px; overflow-wrap: anywhere; }

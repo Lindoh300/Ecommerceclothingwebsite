@@ -15,7 +15,7 @@ export function Footer() {
         <div className="flex flex-col gap-10 lg:flex-row">
           {/* Brand */}
           <div className="flex min-w-0 flex-1 flex-col gap-10">
-            <p className="footer-brand font-semibold">4Nguru The Brand Online</p>
+            <p className="footer-brand font-semibold">4Nguru The Brand</p>
             <div className="max-w-sm">
               <h3 className="micro mb-4 text-b60">Join the list</h3>
               <SubscribeForm source="footer" compact />
@@ -80,8 +80,9 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 border-t border-b10 pt-6">
-          <p className="micro text-b60">&copy; {year} 4Nguru The Brand Online. All rights reserved.</p>
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-b10 pt-6">
+          <p className="micro text-b60">&copy; {year} 4Nguru The Brand. All rights reserved.</p>
+          <Link to="/admin" className="micro text-b60 hover:text-ink transition-colors">Staff sign in</Link>
         </div>
       </div>
     </footer>

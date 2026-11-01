@@ -2,6 +2,7 @@ import { Link, NavLink } from "react-router";
 import { ShoppingCart, Menu, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getCartCount } from "../utils/storage";
+import { ThemeToggle } from "./ThemeToggle";
 
 const navLinks = [
   { name: "Shop", path: "/shop" },
@@ -55,7 +56,8 @@ export function Header() {
         </nav>
 
         {/* Cart and Mobile Menu */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <ThemeToggle />
           <Link to="/cart" aria-label="Cart" className="cart-link relative flex items-center gap-2 text-ink transition-opacity hover:opacity-60">
             <ShoppingCart className="h-5 w-5" />
             <span className="hidden sm:inline text-sm">Cart</span>

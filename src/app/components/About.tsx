@@ -33,7 +33,7 @@ export function About() {
         <h2 className="display h-mid mb-6">How it all started</h2>
         <div className="max-w-2xl space-y-4 text-lg leading-relaxed text-b60">
           <p>
-            4Nguru The Brand Online began with a simple vision: to make high-quality, stylish apparel accessible to
+            4Nguru The Brand began with a simple vision: to make high-quality, stylish apparel accessible to
             everyone in South Africa.
           </p>
           <p>

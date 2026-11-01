@@ -121,13 +121,13 @@ describe('AdminCustomers', () => {
     expect(links).toHaveLength(2)
     expect(links[0]).toHaveAttribute(
       'href',
-      'https://wa.me/27821234567?text=Hi%20Thandi%2C%20this%20is%204Nguru%20The%20Brand%20Online%20here.',
+      'https://wa.me/27821234567?text=Hi%20Thandi%2C%20this%20is%204Nguru%20The%20Brand%20here.',
     )
     expect(links[0]).toHaveAttribute('target', '_blank')
     expect(links[0]).toHaveAttribute('rel', 'noreferrer')
     expect(links[1]).toHaveAttribute(
       'href',
-      'https://wa.me/27715550199?text=Hi%20Sipho%2C%20this%20is%204Nguru%20The%20Brand%20Online%20here.',
+      'https://wa.me/27715550199?text=Hi%20Sipho%2C%20this%20is%204Nguru%20The%20Brand%20here.',
     )
   })
 
