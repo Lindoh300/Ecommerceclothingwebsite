@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "react-router dev",
     "build": "react-router build",
@@ -26,6 +29,8 @@
     "lucide-react": "0.487.0",
     "next-themes": "0.4.6",
     "qrcode": "1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-router": "7.18.5",
     "sonner": "2.0.3",
     "tailwind-merge": "3.2.0",
@@ -47,25 +52,5 @@
     "typescript": "5.9.3",
     "vite": "6.4.5",
     "vitest": "4.1.12"
-  },
-  "peerDependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
-  },
-  "pnpm": {
-    "overrides": {
-      "vite": "6.4.5"
-    }
-  },
-  "workspaces": [
-    "."
-  ]
+  }
 }

@@ -15,6 +15,7 @@ type Db = Awaited<ReturnType<PGlite['clone']>>;
 const MIGRATIONS = new URL('../migrations/', import.meta.url);
 const readMigration = (name: string) => Deno.readTextFile(new URL(name, MIGRATIONS));
 const MIGRATION = '20261101100000_fit_photos.sql';
+const IMAGE_LIMIT_MIGRATION = '20261101110000_fit_image_limit.sql';
 // Every migration before the fit photos one, in order. The pg_cron migration is never loaded: PGlite has no pg_cron.
 const BEFORE = [
   '20261021000000_init.sql',
@@ -74,13 +75,20 @@ const functionDefs = (db: Db): Promise<Json[]> =>
      where n.nspname = 'public' order by sig`,
   );
 
-/** `before` plus the fit photos migration, applied once. */
+/** `before` plus the fit photos and fit image limit migrations, applied once. */
 function after(): Promise<Db> {
   afterDb ??= (async () => {
     const base = await before();
     functionsBefore = functionDefs(base);
     const db = await base.clone();
     await db.exec(await readMigration(MIGRATION));
+    // Start the bucket at the old 2 MB limit, so the image limit migration has something to change.
+    await db.exec(`
+      insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+      values ('product-images', 'product-images', true, 2097152, null)
+      on conflict (id) do update set file_size_limit = 2097152;
+    `);
+    await db.exec(await readMigration(IMAGE_LIMIT_MIGRATION));
     return db;
   })();
   return afterDb;
@@ -316,4 +324,26 @@ Deno.test('migration: changes no existing function, adds only its own, and is sa
   } finally {
     await copy.close();
   }
+});
+
+Deno.test('image limit: product-images takes 5 MB after the migration, and public is unchanged', async () => {
+  const db = await after();
+  const r = await rows(db, `select id, public, file_size_limit from storage.buckets where id = 'product-images'`);
+  assertEquals(r.map((x) => [x.id, x.public, Number(x.file_size_limit)]), [['product-images', true, 5242880]]);
+});
+
+Deno.test('image limit: safe to re-run, and the file only changes that one bucket limit', async () => {
+  const db = await after();
+  const copy = await db.clone();
+  try {
+    await copy.exec(await readMigration(IMAGE_LIMIT_MIGRATION));
+    const r = await rows(copy, `select count(*)::int as n, max(file_size_limit) as lim from storage.buckets where id = 'product-images'`);
+    assertEquals([r[0].n, Number(r[0].lim)], [1, 5242880]);
+  } finally {
+    await copy.close();
+  }
+  const sql = (await readMigration(IMAGE_LIMIT_MIGRATION)).replace(/--.*$/gm, '');
+  assert(/update storage\.buckets set file_size_limit = 5242880 where id = 'product-images';/.test(sql));
+  assert(!/insert|create|drop|delete|alter|grant|revoke/i.test(sql));
+  assert((await readMigration(IMAGE_LIMIT_MIGRATION)).startsWith('-- '));
 });

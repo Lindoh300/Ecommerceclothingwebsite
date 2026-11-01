@@ -63,6 +63,16 @@ const sections: InfoSection[] = [
     ),
   },
   {
+    title: "Photos you tag us in",
+    body: (
+      <p>
+        If you tag us in a public photo on Instagram, we may show it on our Community page with your username and a link
+        to your post. We keep a copy of the photo to show it, and remove that copy when it leaves the wall or when you
+        delete the post or remove the tag. To have a photo taken down sooner, contact us and we will remove it.
+      </p>
+    ),
+  },
+  {
     title: "Questions about your information",
     body: (
       <>

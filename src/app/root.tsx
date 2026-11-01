@@ -22,6 +22,8 @@ export function loader({ request }: Route.LoaderArgs) {
 export const meta: Route.MetaFunction = ({ data, location }) =>
   defaultMeta(data?.origin ?? "", location.pathname);
 
+export const links: Route.LinksFunction = () => [{ rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }];
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" data-theme={theme} suppressHydrationWarning>

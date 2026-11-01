@@ -1,4 +1,4 @@
-# 4Nguru The Brand Online
+# 4Nguru The Brand
 
 South African clothing brand selling online, priced in Rand. Customers order through the shop or on WhatsApp, and delivery covers South Africa. The site also runs events with QR tickets and a community page with a gallery and mailing list.
 
