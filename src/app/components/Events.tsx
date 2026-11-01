@@ -3,40 +3,63 @@ import { Link } from "react-router";
 import { listEvents } from "../api/events";
 import type { PublicEvent } from "../api/types";
 import { eventPath } from "../lib/seo";
-import { formatEventDate, formatPrice } from "../utils/eventTime";
+import { formatClock, formatEventDay } from "../utils/eventTime";
 import { LoadState } from "./common/LoadState";
-import { ProductImage } from "./common/ProductImage";
+import { EventPoster, EventRow, eventPriceLine, useDaysToGo } from "./EventTiles";
 
-/** "Free", "R250", "From R250", "Free and paid tickets", or a note when nothing is on sale. */
-function priceLine(event: PublicEvent): string {
-  const open = event.ticketTypes.filter((t) => t.onSale && t.available > 0);
-  if (open.length === 0) return event.ticketTypes.length > 0 ? "Sold out or closed" : "";
-  const lowest = Math.min(...open.map((t) => t.price));
-  if (open.every((t) => t.price === lowest)) return formatPrice(lowest);
-  return lowest === 0 ? "Free and paid tickets" : `From ${formatPrice(lowest)}`;
+/** The first sentence of a description, for the feature's lede. */
+function firstSentence(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const m = flat.match(/^.*?[.!?](?=\s|$)/);
+  return m ? m[0] : flat;
 }
 
-export function EventCard({ event }: { event: PublicEvent }) {
-  const where = [event.venue, event.city].filter(Boolean).join(", ");
-  const price = priceLine(event);
+function Countdown({ iso }: { iso: string }) {
+  const days = useDaysToGo(iso);
+  if (days === null || days < 0) return null;
+  if (days === 0) {
+    return (
+      <p className="ev-count">
+        <span className="display ev-count-num ev-count-word">Tonight</span>
+      </p>
+    );
+  }
   return (
-    <Link to={eventPath(event.slug)} className="group block border border-b10 r-card hover:border-ink transition-colors motion-reduce:transition-none">
-      <div className="aspect-[16/9] overflow-hidden bg-b5">
-        <ProductImage src={event.image} alt={event.title} />
+    <p className="ev-count">
+      <span className="display ev-count-num">{days}</span>
+      <span className="ev-count-label">{days === 1 ? "day to go" : "days to go"}</span>
+    </p>
+  );
+}
+
+function FeatureEvent({ event }: { event: PublicEvent }) {
+  const where = [event.venue, event.city].filter(Boolean).join(", ");
+  const price = eventPriceLine(event);
+  const meta = [formatEventDay(event.startsAt), `Doors ${formatClock(event.startsAt)}`, where].filter(Boolean).join(" · ");
+  const lede = event.description ? firstSentence(event.description) : "";
+  return (
+    <section aria-label="Next event" className="band-tile ev-feature">
+      <EventPoster event={event} />
+      <div className="ev-feature-body">
+        <Countdown iso={event.startsAt} />
+        <h2 className="display h-mid break-words">{event.title}</h2>
+        {lede && <p className="lede break-words">{lede}</p>}
+        <p className="ev-feature-meta">{meta}</p>
+        <div className="ev-feature-cta">
+          <Link to={eventPath(event.slug)} className="cta">
+            Get tickets
+          </Link>
+          {price && <span className="ev-feature-price">{price}</span>}
+        </div>
       </div>
-      <div className="p-4 md:p-6">
-        <p className="micro text-b60 mb-2">{formatEventDate(event.startsAt)}</p>
-        <h2 className="display h-mid mb-2 break-words">{event.title}</h2>
-        {where && <p className="text-b60 break-words">{where}</p>}
-        {price && <p className="mt-3">{price}</p>}
-      </div>
-    </Link>
+    </section>
   );
 }
 
 export function Events() {
   const [events, setEvents] = useState<PublicEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [past, setPast] = useState<PublicEvent[] | null>(null);
   const live = useRef(true);
 
   const load = useCallback(async () => {
@@ -49,32 +72,80 @@ export function Events() {
     }
   }, []);
 
+  const loadPast = useCallback(async () => {
+    try {
+      const list = await listEvents(true);
+      if (live.current) setPast(list);
+    } catch {
+      // A failed past load shows nothing.
+    }
+  }, []);
+
   useEffect(() => {
     live.current = true;
     load();
+    loadPast();
     return () => {
       live.current = false;
     };
-  }, [load]);
+  }, [load, loadPast]);
+
+  const upcoming = [...(events ?? [])].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  const [next, ...others] = upcoming;
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-[1360px] mx-auto px-6">
-        <p className="page-kicker micro text-b60 mb-3">4Nguru</p>
-        <h1 className="display h-sec mb-10">Events</h1>
+      <div className="max-w-[1360px] mx-auto px-6 space-y-16 md:space-y-24">
+        <header>
+          <p className="page-kicker micro text-b60 mb-3">4Nguru</p>
+          <h1 className="display h-sec mb-4">Events</h1>
+          <p className="page-sub">Doors, tickets and where to find us.</p>
+        </header>
+
         <LoadState loading={events === null && error === null} error={error} onRetry={load}>
-          {events && events.length === 0 ? (
+          {!next ? (
             <div className="border border-b10 r-card p-12 text-center">
               <p className="text-b60">No events announced yet.</p>
             </div>
           ) : (
-            <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-              {(events ?? []).map((e) => (
-                <EventCard key={e.id} event={e} />
-              ))}
+            <div className="space-y-16 md:space-y-24">
+              <FeatureEvent event={next} />
+              {others.length > 0 && (
+                <section aria-labelledby="events-also">
+                  <h2 id="events-also" className="display h-sec mb-6">
+                    Also coming
+                  </h2>
+                  <ul className="ev-wall">
+                    {others.map((e) => (
+                      <li key={e.id} className="min-w-0">
+                        <EventPoster event={e} title />
+                        <p className="ev-wall-meta">
+                          <span>{formatEventDay(e.startsAt)}</span>
+                          <span>{eventPriceLine(e)}</span>
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </div>
           )}
         </LoadState>
+
+        {past && past.length > 0 && (
+          <section aria-labelledby="events-past">
+            <h2 id="events-past" className="display h-sec mb-6">
+              Past nights
+            </h2>
+            <ul>
+              {past.map((e) => (
+                <li key={e.id}>
+                  <EventRow event={e} action="Details" />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </div>
   );

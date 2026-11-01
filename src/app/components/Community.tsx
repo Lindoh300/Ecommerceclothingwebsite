@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { MessageCircle } from "lucide-react";
 import { getGallery } from "../api/community";
 import { listEvents } from "../api/events";
 import type { PublicEvent, PublicGalleryItem } from "../api/types";
 import { whatsappLink } from "../config/shop";
-import { EventCard } from "./Events";
+import { EventRow } from "./EventTiles";
 import { SubscribeForm } from "./SubscribeForm";
 import { LoadState } from "./common/LoadState";
 import { ProductImage } from "./common/ProductImage";
@@ -17,6 +18,7 @@ export function Community() {
   const [galleryError, setGalleryError] = useState<string | null>(null);
   const [past, setPast] = useState<PublicEvent[] | null>(null);
   const [pastError, setPastError] = useState<string | null>(null);
+  const [upcoming, setUpcoming] = useState<PublicEvent[]>([]);
   const live = useRef(true);
 
   const loadGallery = useCallback(async () => {
@@ -39,34 +41,55 @@ export function Community() {
     }
   }, []);
 
+  const loadUpcoming = useCallback(async () => {
+    try {
+      const list = await listEvents();
+      if (live.current) setUpcoming(list);
+    } catch {
+      // Coming up is left out when it fails.
+    }
+  }, []);
+
   useEffect(() => {
     live.current = true;
     loadGallery();
     loadPast();
+    loadUpcoming();
     return () => {
       live.current = false;
     };
-  }, [loadGallery, loadPast]);
+  }, [loadGallery, loadPast, loadUpcoming]);
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
       <div className="max-w-[1360px] mx-auto px-6 space-y-16 md:space-y-24">
         <header>
           <p className="page-kicker micro text-b60 mb-3">4Nguru</p>
-          <h1 className="display h-sec mb-6">Community</h1>
-          <p className="max-w-xl text-lg leading-[1.45] mb-8">
+          <h1 className="display h-sec mb-4">Community</h1>
+          <p className="page-sub">
             Photos from our events, the nights that came before, and a way to hear about the next one.
           </p>
-          <a
-            href={whatsappLink("Hi 4Nguru! I'd like to chat about the community.")}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="cta"
-          >
-            <MessageCircle className="w-4 h-4" aria-hidden="true" />
-            Chat with us on WhatsApp
-          </a>
         </header>
+
+        {upcoming.length > 0 && (
+          <section aria-labelledby="community-coming">
+            <div className="sec-head">
+              <h2 id="community-coming" className="display h-sec">
+                See you there
+              </h2>
+              <Link to="/events" className="linkr">
+                All events
+              </Link>
+            </div>
+            <ul>
+              {upcoming.map((e) => (
+                <li key={e.id}>
+                  <EventRow event={e} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section aria-labelledby="community-gallery">
           <h2 id="community-gallery" className="display h-mid mb-6">
@@ -78,14 +101,12 @@ export function Community() {
                 <p className="text-b60">Photos from our events will appear here.</p>
               </div>
             ) : (
-              <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6 xl:grid-cols-4">
+              <ul className="cm-photos">
                 {(gallery ?? []).map((item) => (
-                  <li key={item.id} className="min-w-0">
+                  <li key={item.id} className="cm-photo min-w-0">
                     <figure>
-                      <div className="aspect-square overflow-hidden bg-b5">
-                        <ProductImage src={item.image} alt={item.caption || "Photo from a 4Nguru event"} />
-                      </div>
-                      {item.caption && <figcaption className="mt-2 text-sm text-b60 break-words">{item.caption}</figcaption>}
+                      <ProductImage src={item.image} alt={item.caption || "Photo from a 4Nguru event"} />
+                      {item.caption && <figcaption className="cm-photo-cap">{item.caption}</figcaption>}
                     </figure>
                   </li>
                 ))}
@@ -104,21 +125,36 @@ export function Community() {
                 <p className="text-b60">Past events will be listed here.</p>
               </div>
             ) : (
-              <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+              <ul>
                 {(past ?? []).map((e) => (
-                  <EventCard key={e.id} event={e} />
+                  <li key={e.id}>
+                    <EventRow event={e} action="Details" />
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </LoadState>
         </section>
 
-        <section aria-labelledby="community-join" className="max-w-xl">
-          <h2 id="community-join" className="display h-mid mb-3">
-            Join the list
-          </h2>
-          <p className="text-b60 mb-6">News about new drops and events. Leave your phone number or email.</p>
-          <SubscribeForm source="community" />
+        <section aria-labelledby="community-join" className="band-tile cm-join">
+          <div>
+            <h2 id="community-join" className="display h-sec mb-4">
+              Join the list
+            </h2>
+            <p className="lede">News about new drops and events. Leave your phone number or email.</p>
+          </div>
+          <div className="cm-join-form">
+            <SubscribeForm source="community" />
+            <a
+              href={whatsappLink("Hi 4Nguru! I'd like to chat about the community.")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cta cta-quiet"
+            >
+              <MessageCircle className="w-4 h-4" aria-hidden="true" />
+              Chat with us on WhatsApp
+            </a>
+          </div>
         </section>
       </div>
     </div>

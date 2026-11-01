@@ -111,7 +111,7 @@ The gallery world's native devices are pills, the float shadow, the rotated over
 - Full pill controls: buttons, search, nav, chips, cart and menu toggle.
 - Soft tiles (1.25rem radius, 4:5 ratio) for products; no borders or shadows on tiles.
 - One float shadow, used only for raised elements.
-- Large dimmed category list that resolves to ink on hover or focus.
+- Photo tile mosaic for categories.
 
 ## Colors
 
@@ -125,7 +125,7 @@ A near-monochrome palette of warm neutrals on white, with colour arriving only t
 - **Mist** (#f4f4f2): The faint surface. Quiet buttons, the nested search well, the nav pill rail, product tiles and the footer ground.
 - **Hairline** (#e6e5e2): The inset ring on the search rail, and the hover fill for quiet buttons. The header and footer carry no rules.
 - **Graphite** (#62605c): Secondary text: navigation at rest, the hero note, placeholders and the search icon. Passes 4.5:1 on both paper and mist.
-- **Dimmed** (#85837f): Category names at rest. It is for large text only (about 3.8:1 on paper).
+- **Dimmed** (#85837f): Available for large text only (about 3.8:1 on paper).
 
 ### Signal
 - **Low-stock Amber** (#8f5400): The low-stock mark's border and dot. Signal only; it never decorates.
@@ -154,18 +154,20 @@ A near-monochrome palette of warm neutrals on white, with colour arriving only t
 
 ## Layout
 
-- **Hero:** A single centred column, minimum height the smaller of the viewport and 860px. Top padding 120px (112px under 640px), side padding 16px, bottom padding 72px (24px under 640px). The header is 72px tall and the hero pulls up 72px beneath it so the gradient starts at the top of the viewport.
-- **Hero stack order:** the headline, then the full-width search (maximum 640px), then the "Shop all" and "Ask on WhatsApp" pills, then the delivery note. The rotating category element is the search placeholder ("Search for …"), not a headline word.
+- **Hero:** From 820px two columns: left-aligned copy and search on the left, a 4:5 new-in tile on the right; under 820px it stacks. Minimum height the smaller of the viewport and 860px. Top padding 120px (112px under 640px), side padding 16px, bottom padding 72px (24px under 640px). The header is 72px tall and the hero pulls up 72px beneath it so the gradient starts at the top of the viewport.
+- **Hero stack order:** under 820px the headline, then the full-width search (maximum 640px), then the "Shop all" and "Ask on WhatsApp" pills, then the delivery note. The rotating category element is the search placeholder ("Search for …"), not a headline word. From 820px the headline, search and pills sit in the left column.
 - **Sections:** Gallery sections use 16px side padding, rising to 24px at 640px. The top padding is 72px, rising to 120px at 768px. Content is capped at 1360px.
 - **Product grid:** Two columns under 768px, three from 768px and four from 1024px. Gap is 32px between rows and 12px between columns under 640px, 16px from 640px.
 - **Product tiles:** Aspect ratio 4:5. Descriptions are hidden in this theme; the name and price are the caption.
-- **Categories:** A single-column list of large rows, not a grid.
+- **Categories:** A mosaic of photo tiles on a 12-column grid, with spans 5, 4, 3 then 3, 4, 5; two columns under 820px. Captions sit under the image.
 - **Footer:** 64px above, Mist ground, top corners 32px. Its link columns expand at 1024px.
 - **Breakpoints:** 640px, 768px and 1024px. Under 768px the desktop nav is replaced by a 44px menu toggle.
 
 ## Elevation & Depth
 
 Flat by default. Depth comes from tone: paper on mist on the white ground, with the hero's gradient providing a single soft fade. One shadow token, the float shadow, is reserved for elements that rise above the page: the active nav pill, the search field and the hero photo stack. Product tiles, buttons and the footer have no shadow.
+
+Panels such as the next-event band and the order steps are Mist `.band-tile` blocks at the card radius; quiet buttons on them are Paper.
 
 ### Shadow Vocabulary
 - **Float** (`box-shadow: 0 8px 24px -8px rgb(11 11 11 / 0.12)`): The active nav pill, the search field and the hero photo stack. The only shadow in the system.
@@ -204,10 +206,13 @@ Pills for every control and soft tiles for every image. Each control is a full 9
 - **Hover:** The photograph scales to 1.03 over 300ms. Reduced motion stops the scale.
 - **Stock:** A sold-out product dims its photograph to 60%. A "Sold out" mark is an ink pill; a "Low stock" mark is a Paper pill with an amber border and dot. Both are 13px labels in pill shape at the top-left of the tile.
 
-### Category List
-- **Style:** A column of large rows in the Category type role. Each row rests in Dimmed grey and the category arrow is hidden.
-- **States:** Hover and keyboard focus move the row to ink, reveal the arrow and show a 0.8em thumbnail at full opacity. Both move in 300ms with the expo-out curve.
-- **Touch:** Where the device has no hover, the rows are always ink, with the arrow and thumbnail visible.
+### Category Tiles
+- **Shape:** Mist tile at the card radius, no border or shadow. Name left and style count right, under the image.
+- **Layout:** Tiles in a row share a height.
+- **Hover:** The photo scales to 1.03. Reduced motion stops the scale.
+
+### Highlights Strip
+A one-line display-type marquee between hairlines, static and wrapped under reduced motion.
 
 ### Hero Photo Stack (signature)
 - **Style:** Two real product photographs, each 0.82em square with a 0.2em radius and the float shadow, set inline after "next fit". The second overlaps the first by 0.3em.
@@ -216,12 +221,10 @@ Pills for every control and soft tiles for every image. Each control is a full 9
 ### Named Rules
 **The Pill Controls Rule.** Every control is a full pill. Content is a soft rounded rectangle at 1.25rem. The two shapes never swap roles.
 
-**The Dimmed Until Chosen Rule.** Category names rest in Dimmed grey and resolve to ink when hovered or focused. On touch screens they are always ink.
-
 ## Do's and Don'ts
 
 ### Do:
-- **Do** use the `[data-theme="gallery"]` hook classes in `src/styles/gallery.css` (`cta`, `cta-quiet`, `product-search`, `gallery-hero`, `gallery-cat`, `site-nav`) for gallery surfaces, and switch new layout on `isGallery` from `src/app/config/theme.ts`.
+- **Do** use the `[data-theme="gallery"]` hook classes in `src/styles/gallery.css` (`cta`, `cta-quiet`, `product-search`, `gallery-hero`, `site-nav`) for gallery surfaces, and switch new layout on `isGallery` from `src/app/config/theme.ts`.
 - **Do** keep headings sentence case, at -0.04em tracking, and at the display, headline and category sizes listed above.
 - **Do** use Dimmed (#85837f) only for large text, where it clears 3:1.
 - **Do** keep every control a full pill and every image on the 1.25rem tile radius.

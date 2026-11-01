@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight } from "lucide-react";
 import type { Category, Product } from "../api/types";
-import { categoryPath } from "../utils/categoryPath";
 import { shop, whatsappLink } from "../config/shop";
 import { ProductGrid } from "./ProductGrid";
 import { ProductSearch } from "./ProductSearch";
 import { LoadState } from "./common";
+import { CategoryMosaic, DropTile, HearItFirst, NextEvent, OrderYourWay, Ticker } from "./HomeTiles";
 
 const DEFAULT_PLACEHOLDER = "Search products";
 const STEP_MS = 2400;
@@ -58,46 +57,65 @@ export function HomeGallery({
   }, [namesKey]);
 
   const markFailed = (src: string) => setFailed((prev) => new Set(prev).add(src));
+  // The first featured product is the hero tile; the photo stack takes the next ones.
   const stackImages = featured
+    .slice(1)
     .filter((p) => p.image && !failed.has(p.image))
     .slice(0, 2);
-
-  const thumbFor = (categoryId: string) =>
-    products.find((p) => p.active !== false && p.category === categoryId && p.image && !failed.has(p.image))?.image;
+  const showTile = loading || featured.length > 0;
 
   return (
     <div>
-      <section className="gallery-hero">
-        <h1 className="display gallery-hero-title">
-          Find your
-          <br />
-          next fit
-          {stackImages.length > 0 && (
-            <span className="gallery-hero-stack" aria-hidden="true">
-              {stackImages.map((p) => (
-                <img key={p.id} src={p.image} alt="" onError={() => markFailed(p.image)} />
-              ))}
-            </span>
-          )}
-        </h1>
-        <ProductSearch placeholder={placeholder} />
-        <div className="gallery-hero-actions">
-          <Link to="/shop" className="cta">Shop all</Link>
-          <a
-            href={whatsappLink(`Hi ${shop.name}, I would like to ask about your clothing.`)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="cta cta-quiet"
-          >
-            Ask on WhatsApp
-          </a>
+      <section className={`gallery-hero hero-split${showTile ? "" : " hero-solo"}`}>
+        <div className="hero-copy">
+          <h1 className="display gallery-hero-title">
+            Find your
+            <br />
+            next fit
+            {stackImages.length > 0 && (
+              <span className="gallery-hero-stack" aria-hidden="true">
+                {stackImages.map((p) => (
+                  <img key={p.id} src={p.image} alt="" onError={() => markFailed(p.image)} />
+                ))}
+              </span>
+            )}
+          </h1>
+          <ProductSearch placeholder={placeholder} />
+          <div className="gallery-hero-actions">
+            <Link to="/shop" className="cta">Shop all</Link>
+            <a
+              href={whatsappLink(`Hi ${shop.name}, I would like to ask about your clothing.`)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cta cta-quiet"
+            >
+              Ask on WhatsApp
+            </a>
+          </div>
+          <p className="gallery-hero-note">Premium quality clothing for every occasion. Shop online, or message us on WhatsApp to order. We deliver across South Africa.</p>
         </div>
-        <p className="gallery-hero-note">Premium quality clothing for every occasion. Shop online, or message us on WhatsApp to order. We deliver across South Africa.</p>
+        {showTile && <DropTile product={featured[0]} />}
+      </section>
+
+      <Ticker />
+
+      <NextEvent />
+
+      <section className="gallery-section">
+        <div className="max-w-[1360px] mx-auto">
+          <div className="sec-head">
+            <h2 className="display h-sec">Shop by category</h2>
+            <Link to="/shop" className="cta cta-quiet">All products</Link>
+          </div>
+          <LoadState loading={categoriesLoading} error={categoriesError} onRetry={() => reloadCategories().catch(() => {})}>
+            <CategoryMosaic categories={categories} products={products} />
+          </LoadState>
+        </div>
       </section>
 
       <section className="gallery-section">
         <div className="max-w-[1360px] mx-auto">
-          <div className="flex items-end justify-between gap-4">
+          <div className="sec-head">
             <h2 className="display h-sec">New in</h2>
             <Link to="/shop" className="cta cta-quiet">All products</Link>
           </div>
@@ -113,27 +131,9 @@ export function HomeGallery({
         </div>
       </section>
 
-      <section className="gallery-section">
-        <div className="max-w-[1360px] mx-auto">
-          <h2 className="display h-sec">Shop by category</h2>
-          <LoadState loading={categoriesLoading} error={categoriesError} onRetry={() => reloadCategories().catch(() => {})}>
-            <ul className="gallery-cats">
-              {categories.map((cat) => {
-                const thumb = thumbFor(cat.id);
-                return (
-                  <li key={cat.id}>
-                    <Link to={categoryPath(cat.id)} className="gallery-cat">
-                      {cat.name}
-                      {thumb && <img src={thumb} alt="" className="gallery-cat-thumb" onError={() => markFailed(thumb)} />}
-                      <ArrowRight aria-hidden="true" />
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </LoadState>
-        </div>
-      </section>
+      <OrderYourWay />
+
+      <HearItFirst />
     </div>
   );
 }

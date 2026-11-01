@@ -28,6 +28,31 @@ export function formatEventDate(iso: string): string {
   return `${DAYS[p.day]} ${p.date} ${MONTHS[p.month]} ${p.year}, ${pad(p.hours)}:${pad(p.minutes)}`;
 }
 
+/** { day: "5 Dec", year: "2026" } for a poster date tag. Empty strings for a bad date. */
+export function eventDateTag(iso: string): { day: string; year: string } {
+  const p = sastParts(iso);
+  return p ? { day: `${p.date} ${MONTHS[p.month]}`, year: String(p.year) } : { day: "", year: "" };
+}
+
+/** "Sat 5 Dec 2026" */
+export function formatEventDay(iso: string): string {
+  const p = sastParts(iso);
+  return p ? `${DAYS[p.day]} ${p.date} ${MONTHS[p.month]} ${p.year}` : "";
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whole days from the South African calendar date of `now` (epoch ms) to the event's South African calendar date.
+ * 0 is today, negative is past. `now` is passed in so rendering stays pure. NaN for a bad date.
+ */
+export function daysUntil(iso: string, now: number): number {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return NaN;
+  const dayOf = (ms: number) => Math.floor((ms + SAST_OFFSET_MS) / DAY_MS);
+  return dayOf(t) - dayOf(now);
+}
+
 /** "18:00" */
 export function formatClock(iso: string): string {
   const p = sastParts(iso);

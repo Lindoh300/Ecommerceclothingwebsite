@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { MessageCircle } from "lucide-react";
+import { ArrowLeft, MessageCircle } from "lucide-react";
 import { getEvent, rsvp } from "../api/events";
 import { ApiError } from "../api/client";
 import type { PublicEvent, PublicTicketType } from "../api/types";
 import { whatsappLink } from "../config/shop";
-import { formatEventDate, formatPrice } from "../utils/eventTime";
+import { formatClock, formatEventDate, formatEventDay, formatPrice } from "../utils/eventTime";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { LoadState } from "./common/LoadState";
-import { ProductImage } from "./common/ProductImage";
+import { EventPoster, daysToGoLabel, useDaysToGo } from "./EventTiles";
 
 const MAX_QUANTITY = 4;
 
@@ -18,6 +18,13 @@ interface EventDetailProps {
   initialEvent?: PublicEvent | null;
   /** The loader found no such event (the page is sent with status 404). */
   notFound?: boolean;
+}
+
+/** Countdown line, set after mount so it matches the server HTML. Never negative. */
+function DaysToGo({ iso }: { iso: string }) {
+  const days = useDaysToGo(iso);
+  if (days === null || days < 0) return null;
+  return <p className="micro text-b60 mb-3">{daysToGoLabel(days)}</p>;
 }
 
 function availabilityText(t: PublicTicketType): string {
@@ -209,11 +216,9 @@ export function EventDetail({ initialEvent = null, notFound = false }: EventDeta
     };
   }, [load]);
 
-  const where = event ? [event.venue, event.city].filter(Boolean).join(", ") : "";
-
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
-      <div className="max-w-3xl mx-auto px-6">
+      <div className="max-w-[1360px] mx-auto px-6">
         <LoadState loading={loading && !event} error={event ? null : error} onRetry={load}>
           {gone || !event ? (
             <div className="text-center py-12">
@@ -223,57 +228,81 @@ export function EventDetail({ initialEvent = null, notFound = false }: EventDeta
               <Link to="/events" className="cta">See events</Link>
             </div>
           ) : (
-            <div>
-              <Link to="/events" className="linkr mb-8 inline-block">All events</Link>
-              {event.image && (
-                <div className="aspect-[16/9] overflow-hidden bg-b5 mb-8">
-                  <ProductImage src={event.image} alt={event.title} />
-                </div>
-              )}
-              <p className="micro text-b60 mb-3">{formatEventDate(event.startsAt)}</p>
-              <h1 className="display h-sec mb-4 break-words">{event.title}</h1>
-              {where && <p className="text-b60 mb-6 break-words">{where}</p>}
-              {event.description && <p className="whitespace-pre-line break-words mb-10">{event.description}</p>}
+            <div className="ev-detail">
+              <div className="ev-detail-poster">
+                <EventPoster event={event} link={false} />
+              </div>
+              <div className="min-w-0">
+                <Link to="/events" className="linkr mb-8 inline-flex items-center gap-2">
+                  <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+                  All events
+                </Link>
+                <DaysToGo iso={event.startsAt} />
+                <h1 className="display h-mid mb-6 break-words">{event.title}</h1>
+                <dl className="facts mb-8">
+                  <div>
+                    <dt>Date</dt>
+                    <dd>{formatEventDay(event.startsAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>Doors</dt>
+                    <dd>{formatClock(event.startsAt)}</dd>
+                  </div>
+                  {event.venue && (
+                    <div>
+                      <dt>Venue</dt>
+                      <dd className="break-words">{event.venue}</dd>
+                    </div>
+                  )}
+                  {event.city && (
+                    <div>
+                      <dt>City</dt>
+                      <dd className="break-words">{event.city}</dd>
+                    </div>
+                  )}
+                </dl>
+                {event.description && <p className="whitespace-pre-line break-words mb-10">{event.description}</p>}
 
-              <h2 className="display h-mid mb-4">Tickets</h2>
-              {event.ticketTypes.length === 0 ? (
-                <p className="text-b60 border border-b10 r-card p-6">Tickets aren't on sale yet.</p>
-              ) : (
-                <ul className="border-t border-b10">
-                  {event.ticketTypes.map((t) => {
-                    const open = t.onSale && t.available > 0;
-                    const free = t.price === 0;
-                    return (
-                      <li key={t.id} className="py-5 border-b border-b10">
-                        <div className="flex flex-wrap justify-between items-baseline gap-x-4 gap-y-1">
-                          <p className="break-words min-w-0">{t.name}</p>
-                          <p>{formatPrice(t.price)}</p>
-                        </div>
-                        <p className={`micro mb-3 ${open ? "text-b60" : "text-ink"}`}>{availabilityText(t)}</p>
-                        {open && free && openType !== t.id && (
-                          <button type="button" className="cta" onClick={() => setOpenType(t.id)}>
-                            RSVP for free
-                          </button>
-                        )}
-                        {open && free && openType === t.id && (
-                          <RsvpForm event={event} type={t} onDone={load} onStale={load} />
-                        )}
-                        {open && !free && (
-                          <a
-                            href={whatsappLink(ticketMessage(event, t))}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="cta"
-                          >
-                            <MessageCircle className="w-5 h-5" />
-                            Get tickets on WhatsApp
-                          </a>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+                <h2 className="display h-mid mb-4">Tickets</h2>
+                {event.ticketTypes.length === 0 ? (
+                  <p className="text-b60 border border-b10 r-card p-6">Tickets aren't on sale yet.</p>
+                ) : (
+                  <ul className="border-t border-b10">
+                    {event.ticketTypes.map((t) => {
+                      const open = t.onSale && t.available > 0;
+                      const free = t.price === 0;
+                      return (
+                        <li key={t.id} className="py-5 border-b border-b10">
+                          <div className="flex flex-wrap justify-between items-baseline gap-x-4 gap-y-1">
+                            <p className="break-words min-w-0">{t.name}</p>
+                            <p>{formatPrice(t.price)}</p>
+                          </div>
+                          <p className={`micro mb-3 ${open ? "text-b60" : "text-ink"}`}>{availabilityText(t)}</p>
+                          {open && free && openType !== t.id && (
+                            <button type="button" className="cta" onClick={() => setOpenType(t.id)}>
+                              RSVP for free
+                            </button>
+                          )}
+                          {open && free && openType === t.id && (
+                            <RsvpForm event={event} type={t} onDone={load} onStale={load} />
+                          )}
+                          {open && !free && (
+                            <a
+                              href={whatsappLink(ticketMessage(event, t))}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="cta"
+                            >
+                              <MessageCircle className="w-5 h-5" />
+                              Get tickets on WhatsApp
+                            </a>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
         </LoadState>

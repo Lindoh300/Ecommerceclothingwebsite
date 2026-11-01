@@ -88,17 +88,32 @@ function ChipGroup({
   options,
   value,
   onChange,
+  allLabel,
 }: {
   label: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; count?: number }[];
   value: string;
   onChange: (next: string) => void;
+  /** Adds a first chip with this label that is pressed when nothing is chosen and clears the choice. */
+  allLabel?: { label: string; count?: number };
 }) {
   if (options.length === 0) return null;
+  const count = (n?: number) => (n === undefined ? null : <span className="shop-chip-count"> {n}</span>);
   return (
-    <div role="group" aria-label={label}>
+    <div role="group" aria-label={label} className="shop-filter-row">
       <p className="micro text-b60 mb-2">{label}</p>
       <div className="flex flex-wrap gap-2">
+        {allLabel && (
+          <button
+            type="button"
+            aria-pressed={value === ""}
+            onClick={() => onChange("")}
+            className={chipClass(value === "")}
+          >
+            {allLabel.label}
+            {count(allLabel.count)}
+          </button>
+        )}
         {options.map((o) => (
           <button
             key={o.value}
@@ -108,6 +123,7 @@ function ChipGroup({
             className={chipClass(value === o.value)}
           >
             {o.label}
+            {count(o.count)}
           </button>
         ))}
       </div>
@@ -129,7 +145,11 @@ export function Shop() {
   const colors = useMemo(() => [...new Set(products.flatMap((p) => p.colors ?? []))].sort((a, b) => a.localeCompare(b, "en")), [products]);
   const categoryOptions = useMemo(() => {
     const used = new Set(products.map((p) => p.category));
-    return categories.filter((c) => c.active !== false && used.has(c.id)).map((c) => ({ value: c.id, label: c.name }));
+    const counts = new Map<string, number>();
+    for (const p of products) counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
+    return categories
+      .filter((c) => c.active !== false && used.has(c.id))
+      .map((c) => ({ value: c.id, label: c.name, count: counts.get(c.id) ?? 0 }));
   }, [categories, products]);
 
   const categoryNames = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
@@ -159,8 +179,10 @@ export function Shop() {
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
       <div className="max-w-[1360px] mx-auto px-6">
-        <p className="micro text-b60 mb-3">Shop / {visible.length} {visible.length === 1 ? "item" : "items"}</p>
-        <h1 className="display h-sec mb-10">All products</h1>
+        <h1 className="display h-sec mb-4">All products</h1>
+        <p className="page-sub mb-10">
+          T-shirts, jerseys, shorts and more. Sizes that are sold out in a colour are marked on the product page.
+        </p>
 
         {isGallery && (
           <div className="mb-8">
@@ -184,15 +206,21 @@ export function Shop() {
           <div
             id="shop-filters"
             data-open={filtersOpen}
-            className="shop-filters mb-10 grid gap-6 border-y border-b10 py-6 md:grid-cols-2 lg:grid-cols-4"
+            className="shop-filters mb-10 flex flex-col gap-6 border-y border-b10 py-6"
             role="search"
             aria-label="Filter products"
           >
-            <ChipGroup label="Category" options={categoryOptions} value={f.category} onChange={(v) => update({ category: v })} />
+            <ChipGroup
+              label="Category"
+              options={categoryOptions}
+              value={f.category}
+              onChange={(v) => update({ category: v })}
+              allLabel={{ label: "All", count: products.length }}
+            />
             <ChipGroup label="Size" options={sizes.map((s) => ({ value: s, label: s }))} value={f.size} onChange={(v) => update({ size: v })} />
             <ChipGroup label="Colour" options={colors.map((c) => ({ value: c, label: c }))} value={f.color} onChange={(v) => update({ color: v })} />
-            <div className="flex flex-col gap-4">
-              <div>
+            <div className="shop-filter-last">
+              <div className="shop-sort">
                 <label htmlFor="shop-sort" className="micro text-b60 mb-2 block">Sort</label>
                 <select
                   id="shop-sort"
@@ -245,7 +273,12 @@ export function Shop() {
               </div>
             </div>
           ) : (
-            <ProductGrid products={visible} />
+            <>
+              <p className="micro text-b60 mb-4" role="status">
+                {visible.length} {visible.length === 1 ? "product" : "products"}
+              </p>
+              <ProductGrid products={visible} />
+            </>
           )}
         </LoadState>
       </div>

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import type { CartLine } from "../utils/storage";
 import { getCart, removeFromCart, updateCartItem, findVariant, getVariantStock } from "../utils/storage";
-import { Trash2 } from "lucide-react";
 import { toast } from "../lib/toast";
 import { ProductImage } from "./common/ProductImage";
 import { useProducts } from "../hooks/useProducts";
@@ -98,6 +97,12 @@ export function Cart() {
       0,
     );
   const total = quote?.total ?? 0;
+  const itemCount = lines.reduce((sum, l) => sum + l.quantity, 0);
+  // The server's line for a cart line (name, unit price), once the quote has it.
+  const quoteLineFor = (line: CartLine) =>
+    quote?.lines.find(
+      (q) => q.productId === line.productId && (q.size ?? "") === (line.size ?? "") && (q.color ?? "") === (line.color ?? "")
+    );
   const blocked = !quote || quoting || hasUnavailable || quote.missing.length > 0;
 
   const handleUpdateQuantity = (index: number, quantity: number) => {
@@ -128,11 +133,14 @@ export function Cart() {
   if (lines.length === 0) {
     return (
       <div className="min-h-screen bg-paper py-16 md:py-24">
-        <div className="max-w-[1360px] mx-auto px-6 text-center">
+        <div className="max-w-[1360px] mx-auto px-6">
           <p className="page-kicker micro text-b60 mb-3">Your bag</p>
           <h2 className="display h-sec mb-6">Your cart is empty</h2>
-          <p className="text-b60 mb-10">Start shopping to add items to your cart</p>
-          <Link to="/" className="cta">Continue shopping</Link>
+          <p className="text-b60 mb-10">Nothing here yet. Pick a colour and size to get started.</p>
+          <div className="flex flex-wrap gap-3">
+            <Link to="/shop" className="cta">Shop now</Link>
+            <Link to="/events" className="cta cta-quiet">See events</Link>
+          </div>
         </div>
       </div>
     );
@@ -142,7 +150,8 @@ export function Cart() {
     <div className="min-h-screen bg-paper py-12 md:py-16">
       <div className="max-w-[1360px] mx-auto px-6">
         <p className="page-kicker micro text-b60 mb-3">Your bag</p>
-        <h1 className="display h-sec mb-12">Cart</h1>
+        <h1 className="display h-sec mb-3">Your cart</h1>
+        <p className="page-sub mb-10">{`${itemCount} ${itemCount === 1 ? "item" : "items"}. Check sizes and quantities, then check out as a guest.`}</p>
 
         <div className="grid lg:grid-cols-3 gap-10 lg:gap-16">
           {/* Cart Items */}
@@ -151,13 +160,21 @@ export function Cart() {
               {lines.map((item, index) => {
                 const product = productsById.get(item.productId);
                 const unavailable = isUnavailable(item);
+                const q = quoteLineFor(item);
+                const name = product?.name ?? (unavailable ? "Unavailable item" : "Loading…");
                 return (
                 <div key={`${item.productId}-${index}`} className="flex gap-6 py-6 border-b border-b10">
                   <div className="w-24 h-24 shrink-0 bg-b5 overflow-hidden r-card">
                     <ProductImage src={product?.image} alt={product?.name ?? "Unavailable item"} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-display h-weight h-case h-track-sm mb-1">{product?.name ?? (unavailable ? "Unavailable item" : "Loading…")}</h3>
+                    <h3 className="font-display h-weight h-case h-track-sm mb-1">
+                      {product ? (
+                        <Link to={`/product/${item.productId}`} className="hover:underline underline-offset-4">{product.name}</Link>
+                      ) : (
+                        name
+                      )}
+                    </h3>
                     <p className="micro text-b60 mb-2">
                       {item.size && `Size: ${item.size}`}
                       {item.size && item.color && ' | '}
@@ -166,32 +183,33 @@ export function Cart() {
                     {unavailable ? (
                       <p className="text-brand">No longer available</p>
                     ) : product ? (
-                      <p className="text-ink">R{product.price}</p>
+                      <p className="text-ink">R{product.price} each</p>
                     ) : null}
-                  </div>
-                  <div className="flex flex-col items-end justify-between">
-                    <button
-                      onClick={() => handleRemove(index)}
-                      className="text-b60 hover:text-ink transition-colors"
-                      aria-label="Remove item"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleUpdateQuantity(index, item.quantity - 1)}
+                    <div className="mt-3 flex flex-wrap items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateQuantity(index, item.quantity - 1)}
+                          aria-label="Decrease quantity"
                           className="w-8 h-8 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        -
+                        >
+                          -
+                        </button>
+                        <span className="w-8 text-center">{item.quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
+                          disabled={unavailable || quantityInCart(item) >= availableFor(item)}
+                          aria-label="Increase quantity"
+                          className="w-8 h-8 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <button type="button" onClick={() => handleRemove(index)} aria-label={`Remove ${name}`} className="linkr">
+                        Remove
                       </button>
-                      <span className="w-8 text-center">{item.quantity}</span>
-                      <button
-                        onClick={() => handleUpdateQuantity(index, item.quantity + 1)}
-                        disabled={unavailable || quantityInCart(item) >= availableFor(item)}
-                        className="w-8 h-8 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        +
-                      </button>
+                      {q && <span className="ml-auto text-ink">R{(q.price * item.quantity).toFixed(2)}</span>}
                     </div>
                   </div>
                 </div>
@@ -203,7 +221,7 @@ export function Cart() {
           {/* Order Summary */}
           <div className="lg:col-span-1">
             <div className="border border-b10 r-card p-6 sticky top-24">
-              <p className="micro text-b60 mb-4">Order summary</p>
+              <h2 className="display h-mid mb-4">Summary</h2>
               <div className="border-t border-b10 pt-4 mb-6">
                 <div className="flex justify-between">
                   <span>Items total</span>
@@ -225,6 +243,7 @@ export function Cart() {
               ) : (
                 <Link to="/checkout" className="cta w-full">Checkout</Link>
               )}
+              <Link to="/shop" className="linkr mt-4 inline-block">Keep shopping</Link>
             </div>
           </div>
         </div>

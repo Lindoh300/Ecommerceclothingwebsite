@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { formatClock, formatEventDate, formatPrice, inputToIso, isoToInput } from './eventTime'
+import { daysUntil, eventDateTag, formatClock, formatEventDay, formatEventDate, formatPrice, inputToIso, isoToInput } from './eventTime'
 
 const ORIGINAL_TZ = process.env.TZ
 
@@ -184,5 +184,61 @@ describe('formatPrice', () => {
 
   it('does not add a thousands separator', () => {
     expect(formatPrice(1234.5)).toBe('R1234.50')
+  })
+})
+
+describe('eventDateTag', () => {
+  it('gives the South African day and year', () => {
+    expect(eventDateTag('2026-12-05T16:00:00.000Z')).toEqual({ day: '5 Dec', year: '2026' })
+  })
+
+  it('rolls to the next South African day after 22:00 UTC', () => {
+    expect(eventDateTag('2026-12-31T22:30:00.000Z')).toEqual({ day: '1 Jan', year: '2027' })
+  })
+
+  it('is empty for a bad date', () => {
+    expect(eventDateTag('nope')).toEqual({ day: '', year: '' })
+  })
+})
+
+describe('formatEventDay', () => {
+  it('shows weekday, day, month and year', () => {
+    expect(formatEventDay('2026-12-05T16:00:00.000Z')).toBe('Sat 5 Dec 2026')
+  })
+
+  it('uses the South African date near midnight UTC', () => {
+    expect(formatEventDay('2026-12-05T22:00:00.000Z')).toBe('Sun 6 Dec 2026')
+    expect(formatEventDay('2026-12-05T21:59:00.000Z')).toBe('Sat 5 Dec 2026')
+  })
+
+  it('is empty for a bad date', () => {
+    expect(formatEventDay('')).toBe('')
+  })
+})
+
+describe('daysUntil', () => {
+  const event = '2026-12-05T16:00:00.000Z'
+
+  it('is 0 on the same South African day', () => {
+    expect(daysUntil(event, Date.parse('2026-12-05T00:00:00.000Z'))).toBe(0)
+    expect(daysUntil(event, Date.parse('2026-12-04T22:00:00.000Z'))).toBe(0)
+  })
+
+  it('counts whole calendar days ahead and behind', () => {
+    expect(daysUntil(event, Date.parse('2026-12-04T12:00:00.000Z'))).toBe(1)
+    expect(daysUntil(event, Date.parse('2026-11-25T12:00:00.000Z'))).toBe(10)
+    expect(daysUntil(event, Date.parse('2026-12-07T12:00:00.000Z'))).toBe(-2)
+  })
+
+  it('flips to the next day at 22:00 UTC, which is midnight in South Africa', () => {
+    expect(daysUntil(event, Date.parse('2026-12-04T21:59:59.000Z'))).toBe(1)
+    expect(daysUntil(event, Date.parse('2026-12-04T22:00:00.000Z'))).toBe(0)
+    expect(daysUntil(event, Date.parse('2026-12-05T21:59:59.000Z'))).toBe(0)
+    expect(daysUntil(event, Date.parse('2026-12-05T22:00:00.000Z'))).toBe(-1)
+  })
+
+  it('uses the South African date of the event too', () => {
+    // 22:30 UTC on 4 Dec is 00:30 on 5 Dec in South Africa.
+    expect(daysUntil('2026-12-04T22:30:00.000Z', Date.parse('2026-12-04T12:00:00.000Z'))).toBe(1)
   })
 })

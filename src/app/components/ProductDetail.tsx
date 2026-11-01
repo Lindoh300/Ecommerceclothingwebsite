@@ -1,5 +1,5 @@
 import { Link, useParams, useNavigate } from "react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { addToCart, findVariant, getCart } from "../utils/storage";
 import type { CartLine } from "../utils/storage";
 import type { Product } from "../api/types";
@@ -9,7 +9,8 @@ import { useProduct, useProducts } from "../hooks/useProducts";
 import { useCategories } from "../hooks/useCategories";
 import { ProductImage } from "./common/ProductImage";
 import { LoadState } from "./common/LoadState";
-import { StockMark } from "./ProductCard";
+import { StockMark, stockStatus } from "./ProductCard";
+import { ProductGrid } from "./ProductGrid";
 import { RestockForm } from "./RestockForm";
 import { shop, whatsappLink } from "../config/shop";
 import { categoryPath } from "../utils/categoryPath";
@@ -34,7 +35,7 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
   const navigate = useNavigate();
   const { product: loadedProduct, loading, error } = useProduct(id);
   const product = loadedProduct ?? initialProduct ?? undefined;
-  const { reload } = useProducts();
+  const { reload, products: allProducts } = useProducts();
   const { categories } = useCategories();
 
   const [selectedSize, setSelectedSize] = useState('');
@@ -95,6 +96,13 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
   const soldOut = !!product && (product.variants?.length ? product.variants.every((v) => v.stock <= 0) : product.stock <= 0);
   const categoryName = categories.find((c) => c.id === product?.category)?.name ?? product?.category;
 
+  // Other active, in-stock products: same category first. Empty until the list loads in the browser.
+  const alsoLike = useMemo(() => {
+    if (!product) return [];
+    const others = allProducts.filter((p) => p.id !== product.id && p.active !== false && stockStatus(p) !== "soldOut");
+    return [...others.filter((p) => p.category === product.category), ...others.filter((p) => p.category !== product.category)].slice(0, 4);
+  }, [allProducts, product]);
+
   const askMessage = product
     ? [
         `Hi ${shop.name}, I am interested in ${product.name} (R${product.price}).`,
@@ -128,13 +136,16 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
     );
   }
 
+  const addDisabled = soldOut || !optionsChosen || remaining === 0;
+  const addLabel = soldOut ? 'Out of Stock' : 'Add to Cart';
+
   const handleAddToCart = () => {
     if (!sizeChosen) {
       toast.error('Please select a size');
       return;
     }
     if (!colorChosen) {
-      toast.error('Please select a color');
+      toast.error('Please select a colour');
       return;
     }
 
@@ -154,21 +165,23 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
   };
 
   return (
-    <div className="min-h-screen bg-paper py-12 md:py-16">
+    <div className="pdp-page min-h-screen bg-paper py-12 md:py-16">
       <div className="max-w-[1360px] mx-auto px-6">
         <div className="mb-10 flex flex-wrap items-center gap-x-6 gap-y-3">
           <button type="button" onClick={() => navigate(-1)} className="linkr text-ink">
             <ArrowLeft className="w-3 h-3" />
             Back
           </button>
-          <nav aria-label="Breadcrumb" className="micro text-b60 min-w-0 break-words">
+          <nav aria-label="Breadcrumb" className="pdp-crumbs text-b60 min-w-0">
             <Link to="/shop" className="hover:text-ink">Shop</Link>
             {categoryName && (
               <>
-                {" / "}
+                <span aria-hidden="true"> / </span>
                 <Link to={categoryPath(product.category)} className="hover:text-ink">{categoryName}</Link>
               </>
             )}
+            <span aria-hidden="true"> / </span>
+            <span aria-current="page" className="text-ink">{product.name}</span>
           </nav>
         </div>
 
@@ -244,6 +257,27 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
             </div>
             <p className="text-b60 mb-8 whitespace-pre-line">{product.description}</p>
 
+            {/* Colour Selection */}
+            {product.colors.length > 0 && (
+              <div className="mb-8" role="group" aria-labelledby="color-label">
+                <p id="color-label" className="micro block mb-3">Colour</p>
+                <div className="flex flex-wrap gap-2">
+                  {product.colors.map(cl => (
+                    <button
+                      key={cl}
+                      type="button"
+                      onClick={() => setSelectedColor(cl)}
+                      disabled={colorOut(cl)}
+                      aria-pressed={color === cl}
+                      className={optionClass(color === cl)}
+                    >
+                      {cl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Size Selection */}
             {product.sizes.length > 0 && (
               <div className="mb-8" role="group" aria-labelledby="size-label">
@@ -265,50 +299,35 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
               </div>
             )}
 
-            {/* Color Selection */}
-            {product.colors.length > 0 && (
-              <div className="mb-8" role="group" aria-labelledby="color-label">
-                <p id="color-label" className="micro block mb-3">Color</p>
-                <div className="flex flex-wrap gap-2">
-                  {product.colors.map(cl => (
-                    <button
-                      key={cl}
-                      type="button"
-                      onClick={() => setSelectedColor(cl)}
-                      disabled={colorOut(cl)}
-                      aria-pressed={color === cl}
-                      className={optionClass(color === cl)}
-                    >
-                      {cl}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Quantity */}
+            {/* Quantity and Add to Cart */}
             <div className="mb-8">
-              <label className="micro block mb-3">Quantity</label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setQuantity(Math.max(1, shownQuantity - 1))}
-                  aria-label="Decrease quantity"
-                  className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors"
-                >
-                  -
-                </button>
-                <span className="w-12 h-10 border border-b10 r-chip flex items-center justify-center" aria-live="polite">
-                  {shownQuantity}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setQuantity(Math.min(Math.max(1, remaining), shownQuantity + 1))}
-                  disabled={!optionsChosen || shownQuantity >= remaining}
-                  aria-label="Increase quantity"
-                  className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  +
+              <p className="micro block mb-3">Quantity</p>
+              <div className="pdp-buy">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(Math.max(1, shownQuantity - 1))}
+                    aria-label="Decrease quantity"
+                    className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors"
+                  >
+                    -
+                  </button>
+                  <span className="w-12 h-10 border border-b10 r-chip flex items-center justify-center" aria-live="polite">
+                    {shownQuantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(Math.min(Math.max(1, remaining), shownQuantity + 1))}
+                    disabled={!optionsChosen || shownQuantity >= remaining}
+                    aria-label="Increase quantity"
+                    className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    +
+                  </button>
+                </div>
+                <button type="button" onClick={handleAddToCart} className="cta pdp-buy-btn" disabled={addDisabled}>
+                  <ShoppingCart className="w-5 h-5" />
+                  {addLabel}
                 </button>
               </div>
               {optionsChosen && selectedStock > 0 && selectedStock <= LOW_STOCK_LIMIT && (
@@ -317,23 +336,12 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
               {optionsChosen && selectedStock > 0 && remaining === 0 && (
                 <p className="micro text-b60 mt-3">You have all available in your cart</p>
               )}
+              {!soldOut && !optionsChosen && (
+                <p className="micro text-b60 mt-3">
+                  Select {!sizeChosen && !colorChosen ? 'a size and a colour' : !sizeChosen ? 'a size' : 'a colour'} to add to cart
+                </p>
+              )}
             </div>
-
-            {/* Add to Cart */}
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              className="cta w-full"
-              disabled={soldOut || !optionsChosen || remaining === 0}
-            >
-              <ShoppingCart className="w-5 h-5" />
-              {soldOut ? 'Out of Stock' : 'Add to Cart'}
-            </button>
-            {!soldOut && !optionsChosen && (
-              <p className="micro text-b60 mt-3">
-                Select {!sizeChosen && !colorChosen ? 'a size and a color' : !sizeChosen ? 'a size' : 'a color'} to add to cart
-              </p>
-            )}
 
             <RestockForm key={product.id} product={product} size={size} color={color} />
 
@@ -342,13 +350,50 @@ export function ProductDetail({ initialProduct = null, notFound = false }: Produ
               href={whatsappLink(askMessage)}
               target="_blank"
               rel="noopener noreferrer"
-              className="caps mt-4 flex h-12 w-full items-center justify-center gap-2 border border-ink r-chip px-6 text-sm text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:bg-ink focus-visible:text-paper motion-reduce:transition-none"
+              className="cta cta-quiet mt-4 w-full"
             >
               <MessageCircle className="w-5 h-5" aria-hidden="true" />
               Ask on WhatsApp
             </a>
+
+            <div className="pdp-acc mt-8">
+              <details>
+                <summary>Size guide</summary>
+                <p>
+                  Not sure which size? See the measurements, or message us on WhatsApp.{" "}
+                  <Link to="/size-guide" className="linkr text-ink">Size guide</Link>
+                </p>
+              </details>
+              <details>
+                <summary>Delivery and returns</summary>
+                <p>
+                  Door or locker delivery across South Africa. The price is worked out at checkout.{" "}
+                  <Link to="/delivery" className="linkr text-ink">Delivery</Link>{" "}
+                  <Link to="/returns" className="linkr text-ink">Returns</Link>
+                </p>
+              </details>
+            </div>
           </div>
         </div>
+
+        {alsoLike.length > 0 && (
+          <section className="pdp-also" aria-labelledby="pdp-also-heading">
+            <h2 id="pdp-also-heading" className="display h-mid mb-8">You might also like</h2>
+            <ProductGrid products={alsoLike} />
+          </section>
+        )}
+      </div>
+
+      <div className="pdp-sticky">
+        <div className="pdp-sticky-info">
+          <p className="text-ink">R{product.price}</p>
+          <p className="micro text-b60 truncate">
+            {[size, color].filter(Boolean).join(" / ") || "Choose options"}
+          </p>
+        </div>
+        <button type="button" onClick={handleAddToCart} className="cta" disabled={addDisabled}>
+          {addLabel}
+        </button>
       </div>
     </div>
   );
