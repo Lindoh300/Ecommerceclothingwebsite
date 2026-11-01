@@ -58,7 +58,7 @@ export function Header() {
         {/* Cart and Mobile Menu */}
         <div className="flex items-center gap-2 sm:gap-4">
           <ThemeToggle />
-          <Link to="/cart" aria-label="Cart" className="cart-link relative flex items-center gap-2 text-ink transition-opacity hover:opacity-60">
+          <Link to="/cart" aria-label={cartCount === 0 ? "Cart" : cartCount === 1 ? "Cart, 1 item" : `Cart, ${cartCount} items`} className="cart-link relative flex items-center gap-2 text-ink transition-opacity hover:opacity-60">
             <ShoppingCart className="h-5 w-5" />
             <span className="hidden sm:inline text-sm">Cart</span>
             {cartCount > 0 && (

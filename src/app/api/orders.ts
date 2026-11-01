@@ -69,6 +69,8 @@ export function createAdminOrder(input: {
   customer: Customer
   delivery?: DeliveryInput
   paymentMethod?: PaymentMethod
+  /** Left out when there is no code. A refused code is a 409 with `code` `discount_invalid` or `discount_minimum`; nothing is kept. */
+  discountCode?: string
 }): Promise<Order> {
   return apiFetch<Order>('/admin/orders', { method: 'POST', body: input, admin: true })
 }

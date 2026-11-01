@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { CheckoutPanel } from "./CheckoutPanel";
@@ -226,6 +226,86 @@ describe("delivery options", () => {
     expect(sent).not.toHaveProperty("delivery");
     expect(sent.customer).toEqual({ name: "Thandi Nkosi", phone: "082 123 4567" });
     expect(await screen.findByText("Order 4N-1042 saved")).toBeInTheDocument();
+  });
+});
+
+describe("delivery options that fail or arrive late", () => {
+  it("shows the options and drops the failure notice when the list arrives after the timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const late = deferred<DeliveryOption[]>();
+      vi.mocked(listDeliveryOptions).mockReturnValue(late.promise);
+      renderPanel();
+
+      // The 8 second timeout (OPTIONS_TIMEOUT_MS) gives up on the list.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8000);
+      });
+      expect(screen.getByText(/Delivery options could not be loaded/)).toBeInTheDocument();
+
+      await act(async () => {
+        late.resolve(OPTIONS);
+      });
+      expect(screen.getByRole("radio", { name: /Door delivery/ })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /Locker/ })).toBeInTheDocument();
+      expect(screen.queryByText(/Delivery options could not be loaded/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not offer Pay online while the options have failed, even with online payments on", async () => {
+    vi.mocked(getShopConfig).mockResolvedValue({ onlinePayments: true });
+    vi.mocked(listDeliveryOptions).mockRejectedValue(new ApiError(500, "boom"));
+    renderPanel();
+
+    await screen.findByText(/Delivery options could not be loaded/);
+    // Let the shop config answer land before checking that Pay online is absent.
+    await act(async () => {});
+    expect(screen.getByRole("radio", { name: /Pay on WhatsApp/ })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: /Pay online/ })).not.toBeInTheDocument();
+  });
+
+  it("falls back to WhatsApp when the options fail after Pay online was chosen, and sends no delivery", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getShopConfig).mockResolvedValue({ onlinePayments: true });
+    // The first load works; the reload after "Unknown delivery option" fails.
+    vi.mocked(listDeliveryOptions)
+      .mockResolvedValueOnce(OPTIONS)
+      .mockRejectedValueOnce(new ApiError(500, "boom"));
+    vi.mocked(placeOrder)
+      .mockRejectedValueOnce(new ApiError(400, "Unknown delivery option"))
+      .mockResolvedValueOnce(makeOrder());
+    renderPanel();
+
+    await optionsLoaded();
+    await fillContact(user);
+    await user.click(screen.getByRole("radio", { name: /Collect/ }));
+    await user.click(await screen.findByRole("radio", { name: /Pay online/ }));
+    await user.type(screen.getByLabelText("Email"), "thandi@example.com");
+    await user.click(screen.getByRole("button", { name: "Place order and pay" }));
+
+    expect(await screen.findByText(/Delivery options could not be loaded/)).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /Pay online/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Pay on WhatsApp/ })).toBeChecked();
+    await waitFor(() => expect(placeButton()).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Place order" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Place order" }));
+    expect(await screen.findByText("Order 4N-1042 saved")).toBeInTheDocument();
+    const second = vi.mocked(placeOrder).mock.calls[1][0];
+    expect(second.paymentMethod).toBe("whatsapp");
+    expect(second).not.toHaveProperty("delivery");
+    expect(payOrder).not.toHaveBeenCalled();
+  });
+
+  it("still offers Pay online when the shop has no delivery options and nothing failed", async () => {
+    vi.mocked(getShopConfig).mockResolvedValue({ onlinePayments: true });
+    vi.mocked(listDeliveryOptions).mockResolvedValue([]);
+    renderPanel();
+
+    expect(await screen.findByRole("radio", { name: /Pay online/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Delivery options could not be loaded/)).not.toBeInTheDocument();
   });
 });
 

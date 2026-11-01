@@ -112,7 +112,11 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
     }, OPTIONS_TIMEOUT_MS);
     listDeliveryOptions()
       .then((list) => {
-        if (live) setOptions(list);
+        // A list that arrives after the timeout replaces the failure notice.
+        if (live) {
+          setOptions(list);
+          setOptionsFailed(false);
+        }
       })
       .catch(() => {
         if (live) {
@@ -139,6 +143,13 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
 
   const loadingOptions = options === null;
   const chosen = options?.find((o) => o.id === method) ?? null;
+  // With the options failed there is no delivery to add the fee to, so online payment is not offered.
+  const canPayOnline = onlinePayments && !optionsFailed;
+
+  useEffect(() => {
+    // Options failed while Pay online was chosen: fall back to WhatsApp. It stays there if they come back later.
+    if (optionsFailed && payment === "online") setPayment("whatsapp");
+  }, [optionsFailed, payment]);
   const setAddr = (k: keyof AddressFields, v: string) => setAddress((a) => ({ ...a, [k]: v }));
 
   const itemsKey = JSON.stringify(items);
@@ -278,7 +289,10 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
         setMethod(null);
         setOptions(null);
         listDeliveryOptions()
-          .then(setOptions)
+          .then((list) => {
+            setOptions(list);
+            setOptionsFailed(false);
+          })
           .catch(() => {
             setOptions([]);
             setOptionsFailed(true);
@@ -535,7 +549,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
             {(
               [
                 ["whatsapp", "Pay on WhatsApp", "We confirm on WhatsApp and send payment details."],
-                ...(onlinePayments ? [["online", "Pay online", "Pay by card or bank on a secure page. Email needed."]] : []),
+                ...(canPayOnline ? [["online", "Pay online", "Pay by card or bank on a secure page. Email needed."]] : []),
               ] as [PaymentMethod, string, string][]
             ).map(([id, label, hint]) => (
               <label

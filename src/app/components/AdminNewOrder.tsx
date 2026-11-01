@@ -8,9 +8,9 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { ApiError } from "../api/client";
-import { createAdminOrder, getShopConfig, listDeliveryOptions } from "../api/orders";
+import { checkDiscountCode, createAdminOrder, getShopConfig, listDeliveryOptions } from "../api/orders";
 import { listAllProducts } from "../api/products";
-import type { DeliveryAddress, DeliveryInput, Order, Product, StockShortfall, Variant } from "../api/types";
+import type { CartQuoteItem, DeliveryAddress, DeliveryInput, Order, Product, StockShortfall, Variant } from "../api/types";
 import { loadProducts } from "../hooks/useProducts";
 import { useAdminList } from "../hooks/useAdminList";
 import { buildOrderLinkMessage, whatsappUrlFor } from "../utils/adminOrder";
@@ -28,6 +28,7 @@ type PayChoice = "whatsapp" | "online";
 
 const EMPTY_ADDRESS: DeliveryAddress = { line1: "", line2: "", suburb: "", city: "", postalCode: "" };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const money = (n: number): string => `R${n.toFixed(2)}`;
 const formatDate = (iso: string): string =>
   new Date(iso).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
 
@@ -70,6 +71,12 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
   // One id per attempt, so a retry or a double tap is one order. Made on the first submit (never while rendering),
   // kept until the order is created or the form is reset.
   const attemptId = useRef<string | null>(null);
+  // Discount code. `applied` remembers the items it was checked against (`key`); when the lines change it is stale
+  // and not sent.
+  const [codeInput, setCodeInput] = useState("");
+  const [applied, setApplied] = useState<{ code: string; amount: number; key: string } | null>(null);
+  const [codeError, setCodeError] = useState("");
+  const [checkingCode, setCheckingCode] = useState(false);
 
   // Online payment can be switched off while the form is open: fall back to the other choice.
   useEffect(() => {
@@ -89,8 +96,69 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
     findProduct(l.productId)?.variants.find((v) => v.id === l.variantId);
   const chosenDelivery = delivery.data.find((d) => d.id === deliveryId);
 
+  /** The lines as the server takes them: used for the order and for checking a code. */
+  const orderItems = (): CartQuoteItem[] =>
+    lines.map((l) => {
+      const v = findVariant(l);
+      return {
+        productId: l.productId,
+        ...(v?.size ? { size: v.size } : {}),
+        ...(v?.color ? { color: v.color } : {}),
+        quantity: l.quantity,
+      };
+    });
+
+  const itemsKey = JSON.stringify(orderItems());
+  const itemsKeyRef = useRef(itemsKey);
+  useEffect(() => {
+    itemsKeyRef.current = itemsKey;
+  }, [itemsKey]);
+  const discount = applied && applied.key === itemsKey ? applied : null;
+  const codeStale = !!applied && applied.key !== itemsKey;
+
   const itemsTotal = lines.reduce((sum, l) => sum + (findProduct(l.productId)?.price ?? 0) * l.quantity, 0);
-  const estimate = itemsTotal + (chosenDelivery?.price ?? 0);
+  const estimate = Math.max(0, itemsTotal + (chosenDelivery?.price ?? 0) - (discount?.amount ?? 0));
+
+  const handleApplyCode = async () => {
+    const code = codeInput.trim();
+    if (!code) {
+      setCodeError("Enter a discount code");
+      return;
+    }
+    if (lines.length === 0) {
+      setCodeError("Add an item first");
+      return;
+    }
+    if (checkingCode || submitting) return;
+    const key = itemsKey;
+    setCheckingCode(true);
+    setCodeError("");
+    try {
+      const result = await checkDiscountCode(JSON.parse(key) as CartQuoteItem[], code);
+      if (itemsKeyRef.current !== key) {
+        setApplied(null);
+        setCodeError("Check your code again");
+      } else if (typeof result.amount === "number") {
+        attemptId.current = null; // the body changes, so a new attempt gets a new id
+        setApplied({ code: result.code, amount: result.amount, key });
+      } else {
+        setApplied(null);
+        setCodeError(result.error ?? "That code is not valid");
+      }
+    } catch {
+      setApplied(null);
+      setCodeError("Could not check the code. Please try again.");
+    } finally {
+      setCheckingCode(false);
+    }
+  };
+
+  const handleRemoveCode = () => {
+    attemptId.current = null;
+    setApplied(null);
+    setCodeError("");
+    setCodeInput("");
+  };
 
   const addLine = (product: Product, variant: Variant, quantity: number): boolean => {
     const existing = lines.find((l) => l.variantId === variant.id);
@@ -178,15 +246,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
     try {
       const order = await createAdminOrder({
         id: attemptId.current,
-        items: lines.map((l) => {
-          const v = findVariant(l)!;
-          return {
-            productId: l.productId,
-            ...(v.size ? { size: v.size } : {}),
-            ...(v.color ? { color: v.color } : {}),
-            quantity: l.quantity,
-          };
-        }),
+        items: orderItems(),
         customer: {
           name: name.trim(),
           phone: phone.trim(),
@@ -195,6 +255,7 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
         },
         ...(d.value ? { delivery: d.value } : {}),
         paymentMethod: pay,
+        ...(discount ? { discountCode: discount.code } : {}),
       });
       attemptId.current = null;
       setCreated(order);
@@ -202,7 +263,14 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
       loadProducts(true).catch(() => {});
       productList.reload().catch(() => {});
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      const refusal = (err as { body?: { code?: unknown } } | null)?.body?.code;
+      if (err instanceof ApiError && err.status === 409 && (refusal === "discount_invalid" || refusal === "discount_minimum")) {
+        // The code was refused and nothing was created: not a stock problem. A new id for the next attempt.
+        attemptId.current = null;
+        setApplied(null);
+        setCodeError(err.message);
+        setSubmitError("Discount code not applied. Remove it or try another.");
+      } else if (err instanceof ApiError && err.status === 409) {
         const short = (err.body as { short?: StockShortfall[] } | undefined)?.short ?? [];
         // A short line is matched to its variant by product, size and colour.
         const byVariant: Record<string, StockShortfall> = {};
@@ -240,6 +308,10 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
     setErrors({});
     setSubmitError(null);
     setShortages({});
+    setCodeInput("");
+    setApplied(null);
+    setCodeError("");
+    setCheckingCode(false);
     setCreated(null);
   };
 
@@ -457,6 +529,49 @@ export function AdminNewOrder({ onApiError }: AdminSectionProps) {
 
         {/* Summary and submit */}
         <section className="border-t border-b10 pt-6 space-y-4">
+          <div>
+            <Label htmlFor="no-discount">Discount code (optional)</Label>
+            {discount ? (
+              <div className="mt-1 flex items-center justify-between gap-3 min-h-11 md:min-h-9">
+                <span className="text-ink break-words">
+                  {discount.code}: -{money(discount.amount)}
+                </span>
+                <Button type="button" variant="outline" onClick={handleRemoveCode} disabled={submitting} className="min-h-11 md:min-h-9">
+                  Remove
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-1 flex items-center gap-2">
+                <Input
+                  id="no-discount"
+                  value={codeInput}
+                  maxLength={40}
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  disabled={submitting || checkingCode}
+                  aria-invalid={!!codeError || codeStale}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleApplyCode();
+                    }
+                  }}
+                  className="h-11 md:h-9"
+                />
+                <Button type="button" variant="outline" onClick={() => void handleApplyCode()} disabled={submitting || checkingCode} className="min-h-11 md:min-h-9">
+                  {checkingCode ? "Checking…" : "Apply"}
+                </Button>
+              </div>
+            )}
+            {!discount && fieldError(codeError || (codeStale ? "Check your code again" : ""))}
+          </div>
+          {discount && (
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="micro text-b60">Discount ({discount.code})</span>
+              <span className="text-ink">-{money(discount.amount)}</span>
+            </div>
+          )}
           <div className="flex items-baseline justify-between gap-3">
             <span className="micro text-b60">Estimated total{chosenDelivery && chosenDelivery.price > 0 ? " (with delivery)" : ""}</span>
             <span className="text-ink text-xl">R{estimate.toFixed(2)}</span>
@@ -513,6 +628,11 @@ function OrderCreated({ order, onAnother }: { order: Order; onAnother: () => voi
           <span className="font-mono text-ink text-2xl">{order.ref}</span>
           <span className="text-ink text-2xl">R{order.total.toFixed(2)}</span>
         </div>
+        {order.discountAmount != null && order.discountAmount > 0 && (
+          <div className="text-sm text-ink">
+            Discount{order.discountCode ? ` (${order.discountCode})` : ""}: -R{order.discountAmount.toFixed(2)}
+          </div>
+        )}
         <div className="text-ink">
           <div className="break-words">{order.customer.name} · {order.customer.phone}</div>
           <div className="text-sm text-b60">
