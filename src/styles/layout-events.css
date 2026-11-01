@@ -83,6 +83,9 @@ li:first-child > .ev-row { border-top: 0; }
 .cm-spot-tile:nth-child(3n) { transform: rotate(-1.2deg); }
 .cm-spot-fig { width: 100%; height: 100%; object-fit: cover; opacity: 0.35; }
 .cm-spot-tag { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; text-align: center; background: var(--paper); color: var(--ink); border-radius: var(--radius-chip); font-size: 12px; }
+.cm-spot-live { border-style: solid; border-color: var(--b10); }
+.cm-spot-live a { display: block; width: 100%; height: 100%; }
+.cm-spot-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 @media (min-width: 640px) {
   .cm-photos { grid-template-columns: repeat(4, minmax(0, 1fr)); }

@@ -1,11 +1,16 @@
 import { apiFetch } from './client'
-import type { PublicGalleryItem, SubscriberSource } from './types'
+import type { PublicFitPhoto, PublicGalleryItem, SubscriberSource } from './types'
 
-export type { PublicGalleryItem, SubscriberSource } from './types'
+export type { PublicFitPhoto, PublicGalleryItem, SubscriberSource } from './types'
 
 /** Public: the active gallery photos, in the order the owner chose. */
 export function getGallery(): Promise<PublicGalleryItem[]> {
   return apiFetch<PublicGalleryItem[]>('/gallery')
+}
+
+/** Public: the tagged Instagram photos for "Your fit, here", newest first. */
+export function getFits(): Promise<PublicFitPhoto[]> {
+  return apiFetch<PublicFitPhoto[]>('/fits')
 }
 
 /**

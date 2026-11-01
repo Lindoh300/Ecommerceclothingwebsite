@@ -6,6 +6,7 @@ import { registerListSendRoutes } from './list_send_routes.ts';
 import { registerCustomerRoutes } from './customers_routes.ts';
 import { registerDeliveryRoutes } from './delivery_routes.ts';
 import { registerDiscountRoutes } from './discount_routes.ts';
+import { registerFitRoutes } from './fit_routes.ts';
 import { registerRestockRoutes } from './restock_routes.ts';
 import { registerEventRoutes } from './events_routes.ts';
 import { type EmailMessage, type Mailer, orderReceivedEmail, orderShippedEmail, paymentReceivedEmail } from './mailer.ts';
@@ -203,6 +204,9 @@ export function createApp(deps: Deps): Hono {
 
   // Restock alerts (Phase F): customers ask to be told, the owner sees who waits, restock_routes.ts.
   registerRestockRoutes(app, deps, guard);
+
+  // Fit photos (Phase F): the "Your fit, here" wall filled from Instagram tags, fit_routes.ts.
+  registerFitRoutes(app, deps, guard);
 
   // Delivery options (admin read and edit of rates), delivery_routes.ts.
   registerDeliveryRoutes(app, deps, guard);

@@ -1,27 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { Instagram, MessageCircle } from "lucide-react";
-import { getGallery } from "../api/community";
+import { getFits, getGallery } from "../api/community";
 import { listEvents } from "../api/events";
-import type { PublicEvent, PublicGalleryItem } from "../api/types";
+import type { PublicEvent, PublicFitPhoto, PublicGalleryItem } from "../api/types";
 import { shop, whatsappLink } from "../config/shop";
 import { useProducts } from "../hooks/useProducts";
 import { EventRow } from "./EventTiles";
+import { FitWall } from "./FitWall";
 import { SubscribeForm } from "./SubscribeForm";
 import { LoadState } from "./common/LoadState";
 import { ProductImage } from "./common/ProductImage";
 
 const errorText = (err: unknown, what: string) => (err instanceof Error ? err.message : `Could not load ${what}`);
 
-const SPOT_SLOTS = [0, 1, 2, 3, 4, 5];
-
 /** Community: upcoming events, photos, your fit, and the mailing-list sign-up. */
 export function Community() {
   const [gallery, setGallery] = useState<PublicGalleryItem[] | null>(null);
   const [galleryError, setGalleryError] = useState<string | null>(null);
   const [upcoming, setUpcoming] = useState<PublicEvent[]>([]);
+  const [fits, setFits] = useState<PublicFitPhoto[]>([]);
   const { products } = useProducts();
   const spotted = products.filter((p) => p.active !== false && p.image).slice(0, 6);
+  const placeholders = spotted.flatMap((p) => (p.image ? [p.image] : []));
   const live = useRef(true);
 
   const loadGallery = useCallback(async () => {
@@ -43,14 +44,24 @@ export function Community() {
     }
   }, []);
 
+  const loadFits = useCallback(async () => {
+    try {
+      const list = await getFits();
+      if (live.current) setFits(list);
+    } catch {
+      // The wall keeps its placeholders when it fails.
+    }
+  }, []);
+
   useEffect(() => {
     live.current = true;
     loadGallery();
     loadUpcoming();
+    loadFits();
     return () => {
       live.current = false;
     };
-  }, [loadGallery, loadUpcoming]);
+  }, [loadGallery, loadUpcoming, loadFits]);
 
   return (
     <div className="min-h-screen bg-paper py-12 md:py-16">
@@ -110,14 +121,7 @@ export function Community() {
         <section aria-labelledby="community-fit">
           <h2 id="community-fit" className="display h-sec mb-4">Your fit, here</h2>
           <p className="page-sub mb-6">Wear it, post it, tag us, and your photo can land on this wall.</p>
-          <ul className="cm-spot-grid" aria-hidden="true">
-            {SPOT_SLOTS.map((slot) => (
-              <li key={slot} className="cm-spot-tile">
-                {spotted[slot] && <img src={spotted[slot].image} alt="" className="cm-spot-fig" />}
-                <span className="cm-spot-tag">Your photo here</span>
-              </li>
-            ))}
-          </ul>
+          <FitWall photos={fits} placeholders={placeholders} />
           <a href={shop.social.instagram} target="_blank" rel="noopener noreferrer" className="cta cta-quiet">
             <Instagram className="w-4 h-4" aria-hidden="true" />
             Tag us on Instagram

@@ -1,5 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2.49.8';
 import { createApp } from './app.ts';
+import { loadInstagramProvider } from './instagram.ts';
 import { loadMailer } from './mailer.ts';
 import { loadPaymentProvider } from './payments.ts';
 import type {
@@ -18,6 +19,10 @@ import type {
   DeleteEventResult,
   DeliveryOptionStore,
   UpdateDeliveryOptionResult,
+  AdminFitPhoto,
+  FitPhoto,
+  FitStore,
+  FitSyncStatus,
   Discount,
   DiscountCheckResult,
   DiscountStore,
@@ -87,6 +92,7 @@ const client = () => createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABA
 //   20261031170000_delivery_admin.sql    list_delivery_options_admin and update_delivery_option
 //   20261031180000_customers.sql         list_customers
 //   20261031190000_discounts.sql         discount codes: place_order_v4, list_discounts, upsert_discount, check_discount
+//   20261101100000_fit_photos.sql        the "Your fit, here" wall: list_fit_photos_public and friends, claim_fit_sync
 // The kv table is not used. Orders and stock changes lock the variant rows, so
 // stock cannot be oversold. Nothing is seeded here: the migration copies the
 // existing products over.
@@ -315,6 +321,23 @@ const listSends: ListSendStore = {
   listAdmin: () => rpc<ListSendSummary[]>('list_list_sends_admin', {}),
 };
 
+// The "Your fit, here" wall. Every call is one transaction; claim and finish keep two syncs from running at once.
+const fits: FitStore = {
+  listPublic: () => rpc<FitPhoto[]>('list_fit_photos_public', {}),
+  listAdmin: () => rpc<AdminFitPhoto[]>('list_fit_photos_admin', {}),
+  upsert: (input) => rpc<boolean>('upsert_fit_photo', { p_input: input }),
+  remove: (id) => rpc<boolean>('delete_fit_photo', { p_id: id }),
+  hide: (id) => rpc<{ found: boolean; path: string }>('hide_fit_photo', { p_id: id }),
+  claimSync: (minAgeSeconds) => rpc<boolean>('claim_fit_sync', { p_min_age_seconds: minAgeSeconds }),
+  async finishSync(error) {
+    await rpc<null>('finish_fit_sync', { p_error: error });
+  },
+  status: () => rpc<FitSyncStatus>('fit_sync_status', {}),
+};
+
+// Supabase's edge runtime keeps a function alive for waitUntil promises after the response has gone.
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
+
 const deps: Deps = {
   products,
   deliveryOptions,
@@ -326,6 +349,23 @@ const deps: Deps = {
   community,
   restock,
   listSends,
+  fits,
+  // null (the fit wall is off) unless both INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID are set. The only read of them.
+  instagram: loadInstagramProvider(Deno.env.get('INSTAGRAM_ACCESS_TOKEN'), Deno.env.get('INSTAGRAM_USER_ID')),
+  async storeFitImage(path, file) {
+    const supabase = client();
+    const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: true });
+    if (error) throw new Error(error.message);
+    return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+  },
+  async removeFitImage(path) {
+    const { error } = await client().storage.from(BUCKET).remove([path]);
+    if (error) throw new Error(error.message);
+  },
+  background(task) {
+    const safe = task.catch(() => {});
+    if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(safe);
+  },
   // null (online payment off) when PAYSTACK_SECRET_KEY is unset or blank. The only read of the key.
   payments: loadPaymentProvider(Deno.env.get('PAYSTACK_SECRET_KEY')),
   // null (no order emails) unless both RESEND_API_KEY and EMAIL_FROM are set. The only read of the key.

@@ -647,6 +647,15 @@ export interface Deps {
   community: CommunityStore;
   restock: RestockStore;
   listSends: ListSendStore;
+  fits: FitStore;
+  /** null when INSTAGRAM_ACCESS_TOKEN or INSTAGRAM_USER_ID is unset: the "Your fit, here" wall is then off. */
+  instagram: InstagramProvider | null;
+  /** Stores a fit photo in the image bucket under `path` (replacing any file there) and returns its public URL. */
+  storeFitImage(path: string, file: File): Promise<string>;
+  /** Removes a stored fit photo file. Throws when the removal failed. */
+  removeFitImage(path: string): Promise<void>;
+  /** Lets `task` finish after the response has gone (EdgeRuntime.waitUntil). It must never reject. */
+  background(task: Promise<unknown>): void;
   /** null when no payment key is configured: online payment is then off. */
   payments: PaymentProvider | null;
   /** null when no email key is configured: no order emails are sent. */
@@ -811,4 +820,66 @@ export interface ListSendStore {
   finishBatch(id: string, subscriberIds: string[], ok: boolean): Promise<ListSendSummary | null>;
   /** Newest first, up to 50. */
   listAdmin(): Promise<ListSendSummary[]>;
+}
+
+// --- Fit photos: "Your fit, here" (20261101100000_fit_photos.sql) ------------------------------------------------
+
+/** A photo someone tagged the shop in, as the public sees it. `postedAt` is an ISO time. */
+export interface FitPhoto {
+  id: string;
+  image: string;
+  username: string;
+  permalink: string;
+  postedAt: string;
+}
+
+/** A stored photo as the owner sees it. `path` is the file in the bucket; the API never sends it out. A hidden photo
+ *  stays as a row (a tombstone) so the next sync does not bring it back. */
+export interface AdminFitPhoto extends FitPhoto {
+  path: string;
+  hidden: boolean;
+}
+
+export interface FitSyncStatus {
+  lastOkAt: string | null;
+  /** '' when the last sync was clean, else a code: fetch_failed, image_failed or sync_failed. */
+  lastError: string;
+}
+
+export type FitPhotoInput = FitPhoto & { path: string };
+
+export interface FitStore {
+  /** The wall: shown photos, newest first, at most 6. */
+  listPublic(): Promise<FitPhoto[]>;
+  /** Every stored row, hidden ones too, newest first. */
+  listAdmin(): Promise<AdminFitPhoto[]>;
+  /** Inserts or updates a photo. false = not stored (the id is hidden). */
+  upsert(input: FitPhotoInput): Promise<boolean>;
+  /** Deletes the row, hidden or not. false = no such row. */
+  remove(id: string): Promise<boolean>;
+  /** Hides a photo (a tombstone) and returns the file it had so the caller can delete it. found false = no such row. */
+  hide(id: string): Promise<{ found: boolean; path: string }>;
+  /** true when the caller may sync now: nothing was started in the last `minAgeSeconds`. Records the attempt. */
+  claimSync(minAgeSeconds: number): Promise<boolean>;
+  /** Ends a claimed sync. '' = clean (records lastOkAt), else an error code. */
+  finishSync(error: string): Promise<void>;
+  status(): Promise<FitSyncStatus>;
+}
+
+/** One post the shop is tagged in, as Instagram describes it. `timestamp` is Instagram's own text, for example
+ *  2026-11-01T10:00:00+0000. `mediaUrl` is null when Instagram gives none (some albums and videos). */
+export interface TaggedMedia {
+  id: string;
+  mediaType: string;
+  mediaUrl: string | null;
+  username: string;
+  permalink: string;
+  timestamp: string;
+}
+
+export interface InstagramProvider {
+  /** The newest tagged posts, first page only. Throws on any failure; the message never has the token or the URL. */
+  listTagged(limit: number): Promise<TaggedMedia[]>;
+  /** Fetches one of Instagram's own image URLs. Throws for any other host, a non-image or a body over 5 MB. */
+  download(url: string): Promise<File>;
 }

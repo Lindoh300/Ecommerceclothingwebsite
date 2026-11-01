@@ -381,6 +381,26 @@ export interface GalleryInput {
   active?: boolean
 }
 
+/** A tagged Instagram photo on the "Your fit, here" wall. Newest first from the server. */
+export interface PublicFitPhoto {
+  id: string
+  image: string
+  username: string
+  permalink: string
+  postedAt: string
+}
+
+export interface AdminFitPhoto extends PublicFitPhoto {
+  hidden: boolean
+}
+
+/** The fit wall as the owner sees it, with the state of the last Instagram sync. */
+export interface AdminFitWall {
+  enabled: boolean
+  photos: AdminFitPhoto[]
+  status: { lastOkAt: string | null; lastError: string }
+}
+
 /** A mailing-list subscriber, for the owner. */
 export interface Subscriber {
   id: string

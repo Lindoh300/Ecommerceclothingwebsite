@@ -1,5 +1,13 @@
 import { apiFetch } from './client'
-import type { AdminGalleryItem, GalleryInput, ListSendSummary, RestockRequest, Subscriber } from './types'
+import type {
+  AdminFitWall,
+  AdminGalleryItem,
+  AdminFitPhoto,
+  GalleryInput,
+  ListSendSummary,
+  RestockRequest,
+  Subscriber,
+} from './types'
 
 // Admin calls for the gallery and the mailing list. Imported only by the admin screens.
 
@@ -18,6 +26,26 @@ export function saveGalleryItem(id: string, input: GalleryInput): Promise<AdminG
 
 export async function deleteGalleryItem(id: string): Promise<void> {
   await apiFetch<void>(`/admin/gallery/${encodeURIComponent(id)}`, { method: 'DELETE', admin: true })
+}
+
+/** The fit wall, with hidden photos and the last sync. */
+export function getFitWall(): Promise<AdminFitWall> {
+  return apiFetch<AdminFitWall>('/admin/fits', { admin: true })
+}
+
+/** Pulls the latest tagged photos from Instagram now. */
+export function syncFitWall(): Promise<AdminFitWall> {
+  return apiFetch<AdminFitWall>('/admin/fits/sync', { method: 'POST', admin: true })
+}
+
+/** Keeps a photo off the public wall. */
+export function hideFit(id: string): Promise<AdminFitPhoto> {
+  return apiFetch<AdminFitPhoto>(`/admin/fits/${encodeURIComponent(id)}/hide`, { method: 'POST', admin: true })
+}
+
+/** Puts a hidden photo back on the public wall. */
+export function showFit(id: string): Promise<AdminFitPhoto> {
+  return apiFetch<AdminFitPhoto>(`/admin/fits/${encodeURIComponent(id)}/show`, { method: 'POST', admin: true })
 }
 
 /** Newest first, opted-out people included. */

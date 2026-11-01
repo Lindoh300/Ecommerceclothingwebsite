@@ -14,6 +14,7 @@ import { useAdminList } from "../hooks/useAdminList";
 import { toCsv } from "../utils/csv";
 import { formatEventDate } from "../utils/eventTime";
 import type { AdminSectionProps } from "./adminSections";
+import { AdminFitWall } from "./AdminFitWall";
 import { AdminListSend } from "./AdminListSend";
 import { AdminRestock } from "./AdminRestock";
 import { Input } from "./ui/input";
@@ -301,6 +302,7 @@ export function AdminCommunity(props: AdminSectionProps) {
     <div className="space-y-12">
       <h2 className="display h-mid">Community</h2>
       <AdminGallery {...props} />
+      <AdminFitWall {...props} />
       <AdminRestock {...props} />
       <AdminListSend {...props} />
       <AdminSubscribers {...props} />

@@ -228,7 +228,7 @@ Pills for every control and soft tiles for every image. Each control is a full 9
 
 ### Your Fit Tiles
 - **Where:** The "Your fit, here" wall on `/community`.
-- **Style:** Placeholder tiles where customer photos will go. Each shows a faded product photograph at 35% opacity under a dashed border. They are placeholders, not links.
+- **Style:** A live tile shows the tagged photo at full strength with a solid border and an @username chip linking to the post. Empty slots keep the faded dashed tile: a faded product photograph at 35% opacity under a dashed border. Empty slots are placeholders, not links.
 - **Content:** The community page has no past events. Past events stay on the events page.
 
 ### Hero Photo Stack (signature)

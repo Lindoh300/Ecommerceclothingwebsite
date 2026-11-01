@@ -10,17 +10,23 @@
 // 20261031150000_restock_alerts.sql (restock requests: memoryRestock; unsubscribing also removes them), and
 // 20261031160000_list_sends.sql (sending to the mailing list: memoryListSends), and
 // 20261031190000_discounts.sql (discount codes: memoryDiscounts, plus place_order_v4 and the use-release trigger inside
-// memoryOrders).
+// memoryOrders), and 20261101100000_fit_photos.sql (the "Your fit, here" wall: memoryFits).
 // When one changes, change the other.
 import { createApp, deriveImage, resolveVariant } from './app.ts';
+import { createFakeInstagram } from './fake_instagram.ts';
 import { createFakeProvider } from './fake_payments.ts';
 import type { PaymentProvider } from './payments.ts';
 import { seedCatalogue } from './seed.ts';
 import { normalisePhone } from './validation.ts';
 import type {
   AdminEvent,
+  AdminFitPhoto,
   AdminGalleryItem,
   CommunityStore,
+  FitPhotoInput,
+  FitStore,
+  FitSyncStatus,
+  InstagramProvider,
   GalleryInput,
   ListSendRecipient,
   ListSendStore,
@@ -1763,12 +1769,104 @@ export async function seedSampleEvent(events: EventStore): Promise<void> {
   await events.upsertTicketType(crypto.randomUUID(), { eventId, name: 'VIP table', price: 250, capacity: 10, sort: 2 });
 }
 
+// --- Fit photos: mirrors 20261101100000_fit_photos.sql ------------------------------------------------------------
+
+/** The wall shows at most this many photos (the `limit 6` in list_fit_photos_public). */
+const FIT_PUBLIC_LIMIT = 6;
+
+type StoredFit = {
+  id: string;
+  image: string;
+  path: string;
+  username: string;
+  permalink: string;
+  postedAt: number;
+  hidden: boolean;
+};
+
+/**
+ * In-memory fit photos that mirror the functions in 20261101100000_fit_photos.sql: the same ordering (newest first,
+ * the larger id first on a tie), the same limit of 6 on the public list, hide keeping the row with its image and path
+ * blanked, upsert leaving a hidden row alone (false), and one sync record for claim and finish.
+ */
+export function memoryFits(lock: Lock = createLock(), now: () => number = Date.now): FitStore {
+  const rows = new Map<string, StoredFit>();
+  // The fit_sync row: null until the first claim, like the row that is created on first use.
+  let sync: { startedAt: number | null; lastOkAt: number | null; lastError: string } | null = null;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const newestFirst = (a: StoredFit, b: StoredFit) =>
+    b.postedAt - a.postedAt || (b.id.length !== a.id.length ? b.id.length - a.id.length : a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+  const touch = () => (sync ??= { startedAt: null, lastOkAt: null, lastError: '' });
+  const pub = (r: StoredFit) => ({
+    id: r.id,
+    image: r.image,
+    username: r.username,
+    permalink: r.permalink,
+    postedAt: iso(r.postedAt),
+  });
+
+  return {
+    listPublic: () =>
+      lock(async () =>
+        [...rows.values()].filter((r) => !r.hidden && r.image !== '').sort(newestFirst).slice(0, FIT_PUBLIC_LIMIT).map(pub)
+      ),
+    listAdmin: () =>
+      lock(async (): Promise<AdminFitPhoto[]> =>
+        [...rows.values()].sort(newestFirst).map((r) => ({ ...pub(r), path: r.path, hidden: r.hidden }))
+      ),
+    upsert: (input: FitPhotoInput) =>
+      lock(async () => {
+        if (rows.get(input.id)?.hidden) return false;
+        rows.set(input.id, {
+          id: input.id,
+          image: input.image ?? '',
+          path: input.path ?? '',
+          username: input.username ?? '',
+          permalink: input.permalink ?? '',
+          postedAt: new Date(input.postedAt).getTime(),
+          hidden: false,
+        });
+        return true;
+      }),
+    remove: (id) => lock(async () => rows.delete(id)),
+    hide: (id) =>
+      lock(async () => {
+        const r = rows.get(id);
+        if (!r) return { found: false, path: '' };
+        const path = r.path;
+        r.hidden = true;
+        r.image = '';
+        r.path = '';
+        return { found: true, path };
+      }),
+    claimSync: (minAgeSeconds) =>
+      lock(async () => {
+        const s = touch();
+        if (s.startedAt !== null && s.startedAt > now() - minAgeSeconds * 1000) return false;
+        s.startedAt = now();
+        return true;
+      }),
+    finishSync: (error) =>
+      lock(async () => {
+        const s = touch();
+        s.lastError = error ?? '';
+        if (s.lastError === '') s.lastOkAt = now();
+      }),
+    status: () =>
+      lock(async (): Promise<FitSyncStatus> => ({
+        lastOkAt: sync?.lastOkAt == null ? null : iso(sync.lastOkAt),
+        lastError: sync?.lastError ?? '',
+      })),
+  };
+}
+
 /** Empty in-memory deps. Pass `seed: true` to add the sample categories and products. */
 export async function createMemoryDeps(
   isAdmin: Deps['isAdmin'],
   seed = false,
   payments: PaymentProvider | null = null,
   now: () => number = Date.now,
+  instagram: InstagramProvider | null = null,
 ): Promise<Deps & { orders: MemoryOrderStore }> {
   const db = createMemoryDb();
   const lock = createLock();
@@ -1796,6 +1894,13 @@ export async function createMemoryDeps(
     community,
     restock,
     listSends: memoryListSends(createLock(), now, () => community.listSubscribers()),
+    fits: memoryFits(createLock(), now),
+    instagram,
+    storeFitImage: (path) => Promise.resolve(`https://picsum.photos/seed/${path.replaceAll('/', '-')}/800/1000`),
+    removeFitImage: () => Promise.resolve(),
+    background: (task) => {
+      task.catch(() => {});
+    },
     payments,
     mailer: null,
     siteUrl: null,
@@ -1813,6 +1918,9 @@ if (import.meta.main) {
     (h) => Promise.resolve(h === 'Bearer dev-admin' ? 'ok' : 'unauthenticated'),
     true,
     createFakeProvider(crypto.randomUUID()),
+    Date.now,
+    // Dev only: eight sample tagged posts (one a video) so the "Your fit, here" wall can be seen.
+    createFakeInstagram(),
   );
   // Dev only: one published sample event. Tests and production never seed events.
   await seedSampleEvent(deps.events);
