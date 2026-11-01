@@ -1,5 +1,7 @@
 import { apiFetch } from './client'
 import type {
+  CartQuote,
+  CartQuoteDiscount,
   CartQuoteItem,
   Customer,
   DeliveryInput,
@@ -12,6 +14,7 @@ import type {
 } from './types'
 
 export type {
+  CartQuoteDiscount,
   Customer,
   DeliveryAddress,
   DeliveryInput,
@@ -40,8 +43,19 @@ export function placeOrder(input: {
   /** Left out: the order goes ahead without delivery details. */
   delivery?: DeliveryInput
   paymentMethod?: PaymentMethod
+  /** Left out when there is no code. A refused code is a 409 with `code` `discount_invalid` or `discount_minimum`; nothing is kept. */
+  discountCode?: string
 }): Promise<Order> {
   return apiFetch<Order>('/orders', { method: 'POST', body: input })
+}
+
+/**
+ * Public: asks the server whether a discount code works for these items, through the cart quote. Returns the quote's
+ * `discount` part: `{ code, amount }` or `{ error, code }` (`discount_invalid`, `discount_minimum`, `rate_limited`).
+ */
+export async function checkDiscountCode(items: CartQuoteItem[], code: string): Promise<CartQuoteDiscount> {
+  const quote = await apiFetch<CartQuote>('/cart/quote', { method: 'POST', body: { items, discountCode: code } })
+  return quote.discount ?? { error: 'That code could not be checked. Please try again.', code: 'discount_invalid' }
 }
 
 /**

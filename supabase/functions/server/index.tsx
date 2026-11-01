@@ -18,6 +18,10 @@ import type {
   DeleteEventResult,
   DeliveryOptionStore,
   UpdateDeliveryOptionResult,
+  Discount,
+  DiscountCheckResult,
+  DiscountStore,
+  UpsertDiscountResult,
   Deps,
   EventStore,
   ListSendRecipient,
@@ -80,6 +84,9 @@ const client = () => createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABA
 //   20261031140000_unsubscribe.sql       unsubscribe_contact (self-service opt-out, shares the sign-up limit)
 //   20261031150000_restock_alerts.sql    restock_requests, request_restock_alert and friends; unsubscribe_contact also removes them
 //   20261031160000_list_sends.sql        list_sends and list_send_recipients, create_list_send and friends (sending to the list)
+//   20261031170000_delivery_admin.sql    list_delivery_options_admin and update_delivery_option
+//   20261031180000_customers.sql         list_customers
+//   20261031190000_discounts.sql         discount codes: place_order_v4, list_discounts, upsert_discount, check_discount
 // The kv table is not used. Orders and stock changes lock the variant rows, so
 // stock cannot be oversold. Nothing is seeded here: the migration copies the
 // existing products over.
@@ -91,11 +98,16 @@ const rpc = async <T,>(fn: string, args: Record<string, unknown>): Promise<T> =>
 
 const orders: OrderStore = {
   place: (id, items, customer, opts) =>
-    rpc<PlaceOrderResult>('place_order_v3', {
+    rpc<PlaceOrderResult>('place_order_v4', {
       p_id: id,
       p_items: items,
       p_customer: customer,
-      p_opts: { delivery: opts?.delivery, paymentMethod: opts?.paymentMethod, ip: opts?.ip },
+      p_opts: {
+        delivery: opts?.delivery,
+        paymentMethod: opts?.paymentMethod,
+        ip: opts?.ip,
+        discountCode: opts?.discountCode,
+      },
     }),
   async list() {
     const { data, error } = await client().from('orders').select('*').order('created_at', { ascending: false });
@@ -125,6 +137,8 @@ const orders: OrderStore = {
         number: r.tracking_number ?? null,
         url: r.tracking_url ?? null,
       },
+      discountCode: r.discount_code ?? null,
+      discountAmount: Number(r.discount_amount ?? 0),
     }));
   },
   async cancel(id) {
@@ -189,6 +203,13 @@ const deliveryOptions: DeliveryOptionStore = {
   list: () => rpc<DeliveryOption[]>('list_delivery_options', {}),
   listAll: () => rpc<DeliveryOptionAdmin[]>('list_delivery_options_admin', {}),
   update: (id, patch) => rpc<UpdateDeliveryOptionResult>('update_delivery_option', { p_id: id, p_patch: patch }),
+};
+
+const discounts: DiscountStore = {
+  list: () => rpc<Discount[]>('list_discounts', {}),
+  upsert: (id, input) => rpc<UpsertDiscountResult>('upsert_discount', { p_id: id, p_input: input }),
+  check: (code, goods, ip) =>
+    rpc<DiscountCheckResult>('check_discount', { p_code: code, p_goods: goods, p_ip: ip ?? null }),
 };
 
 const customers: CustomerStore = {
@@ -297,6 +318,7 @@ const listSends: ListSendStore = {
 const deps: Deps = {
   products,
   deliveryOptions,
+  discounts,
   customers,
   categories,
   orders,

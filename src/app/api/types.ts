@@ -76,10 +76,17 @@ export interface CartQuoteLine {
   available: number
 }
 
+/** The `discount` part of a quote: the code and its amount, or the server's reason it can't be used. */
+export type CartQuoteDiscount =
+  | { code: string; amount: number; error?: undefined }
+  | { error: string; code: 'discount_invalid' | 'discount_minimum' | 'rate_limited'; amount?: undefined }
+
 export interface CartQuote {
   lines: CartQuoteLine[]
   total: number
   missing: string[]
+  /** Only when the request carried a discount code. `total` never includes it. */
+  discount?: CartQuoteDiscount
 }
 
 export interface Customer {
@@ -192,6 +199,9 @@ export interface Order {
   expiresAt?: string | null
   /** null until the admin adds tracking. */
   tracking?: OrderTracking | null
+  /** The code used, or null. `total` is already net of `discountAmount`. */
+  discountCode?: string | null
+  discountAmount?: number
 }
 
 /** An order as the public tracking page sees it: no customer details, address or payment fields. */
@@ -209,6 +219,8 @@ export interface PublicOrder {
   tracking: OrderTracking | null
   expiresAt: string | null
   paymentMethod: 'whatsapp' | 'online' | null
+  discountCode?: string | null
+  discountAmount?: number
 }
 
 export interface StockShortfall {
@@ -411,6 +423,34 @@ export interface ListSendSummary {
   createdAt: string
   /** null until no recipient is pending or sending. */
   finishedAt: string | null
+}
+
+/** percent is off the total in %, fixed is Rand off. */
+export type DiscountKind = 'percent' | 'fixed'
+
+/** A discount code as the owner sees it. `uses` is counted by the server. `expiresAt` null means no expiry. */
+export interface Discount {
+  id: string
+  code: string
+  kind: DiscountKind
+  value: number
+  minSpend: number
+  expiresAt: string | null
+  maxUses: number | null
+  uses: number
+  active: boolean
+  createdAt: string
+}
+
+/** What the admin saves for a discount code. */
+export interface DiscountInput {
+  code: string
+  kind: DiscountKind
+  value: number
+  minSpend: number
+  expiresAt: string | null
+  maxUses: number | null
+  active: boolean
 }
 
 /** A customer as the owner sees them, one row per phone number. `spent` is in Rand. Newest last order first. */

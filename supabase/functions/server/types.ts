@@ -75,6 +75,8 @@ export interface VariantStockInput {
 
 export interface CartQuoteRequest {
   items: { productId: string; size?: string; color?: string; quantity: number }[];
+  /** Trimmed and upper-cased by validateQuote; absent when blank. Not checked against DISCOUNT_CODE_RE there. */
+  discountCode?: string;
 }
 
 export interface CartQuoteLine {
@@ -92,10 +94,17 @@ export interface CartQuoteLine {
   sku: string;
 }
 
+/** The answer for a discount code sent with a quote. `total` of the quote never includes it. */
+export type CartQuoteDiscount =
+  | { code: string; amount: number }
+  | { error: string; code: 'discount_invalid' | 'discount_minimum' | 'rate_limited' };
+
 export interface CartQuote {
   lines: CartQuoteLine[];
   total: number;
   missing: string[];
+  /** Only when a code was sent and every line was found. */
+  discount?: CartQuoteDiscount;
 }
 
 export interface OrderItemInput {
@@ -137,6 +146,8 @@ export interface PlaceOptions {
   paymentMethod?: PaymentMethod;
   /** The client address (Cloudflare's cf-connecting-ip). Only used for the per-address order limit. No ip, no limit. */
   ip?: string;
+  /** A discount code, already trimmed and upper-cased. Blank means none. See place_order_v4. */
+  discountCode?: string;
 }
 
 export interface DeliveryOption {
@@ -201,6 +212,9 @@ export interface Order {
   paidAt?: string | null;
   expiresAt?: string | null;
   tracking?: OrderTracking | null;
+  /** The code the order was placed with, and the amount it took off goods (never delivery). `total` is already net. */
+  discountCode?: string | null;
+  discountAmount?: number;
 }
 
 export interface StockShortfall {
@@ -219,7 +233,11 @@ export type PlaceOrderResult =
   | { ok: false; reason: 'stock'; short: StockShortfall[] }
   | { ok: false; reason: 'unknown_delivery' }
   /** 5 orders per address in a rolling hour. Nothing was kept: no order, stock untouched. */
-  | { ok: false; reason: 'rate_limited' };
+  | { ok: false; reason: 'rate_limited' }
+  /** The code is unknown, off, expired or used up (one reason on purpose), or an online order would total 0. Nothing was kept. */
+  | { ok: false; reason: 'discount_invalid' }
+  /** Goods are below the code's minimum spend. Nothing was kept. */
+  | { ok: false; reason: 'discount_minimum'; minSpend: number };
 
 export type SetStatusResult =
   | { ok: true; changed: boolean; order: Order }
@@ -269,6 +287,8 @@ export interface PublicOrder {
   tracking: OrderTracking | null;
   expiresAt: string | null;
   paymentMethod: PaymentMethod | null;
+  discountCode: string | null;
+  discountAmount: number;
 }
 
 /** What the pay route needs about an order. `paymentUrl` is never part of `Order`. */
@@ -568,9 +588,58 @@ export interface CustomerStore {
   list(): Promise<CustomerSummary[]>;
 }
 
+// --- Discount codes (20261031190000_discounts.sql) -------------------------------------------------------------
+
+export type DiscountKind = 'percent' | 'fixed';
+
+/** A code as the owner sees it. `uses` is counted by the server and cannot be set. */
+export interface Discount {
+  id: string;
+  code: string;
+  kind: DiscountKind;
+  value: number;
+  minSpend: number;
+  expiresAt: string | null;
+  maxUses: number | null;
+  uses: number;
+  active: boolean;
+  createdAt: string;
+}
+
+/** What PUT /admin/discounts/:id takes (after validateDiscountInput has filled the defaults). */
+export interface DiscountInput {
+  code: string;
+  kind: DiscountKind;
+  value: number;
+  minSpend: number;
+  expiresAt: string | null;
+  maxUses: number | null;
+  active: boolean;
+}
+
+export type UpsertDiscountResult =
+  | { ok: true; discount: Discount }
+  | { ok: false; reason: 'code_taken' };
+
+export type DiscountCheckResult =
+  | { ok: true; code: string; amount: number }
+  | { ok: false; reason: 'discount_invalid' | 'rate_limited' }
+  | { ok: false; reason: 'discount_minimum'; minSpend: number };
+
+export interface DiscountStore {
+  /** Every code, newest first. */
+  list(): Promise<Discount[]>;
+  /** Creates or updates by id. Never touches `uses`. A code another row has is 'code_taken'. */
+  upsert(id: string, input: DiscountInput): Promise<UpsertDiscountResult>;
+  /** The public check (check_discount): 20 per address in a rolling hour, then 'rate_limited'; no ip, no limit. A pure
+   *  read otherwise. `goods` is the lines total, without delivery. */
+  check(code: string, goods: number, ip?: string): Promise<DiscountCheckResult>;
+}
+
 export interface Deps {
   products: ProductStore;
   deliveryOptions: DeliveryOptionStore;
+  discounts: DiscountStore;
   customers: CustomerStore;
   categories: CategoryStore;
   orders: OrderStore;

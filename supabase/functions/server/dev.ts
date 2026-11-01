@@ -8,7 +8,9 @@
 // 20261031110000_payment_links.sql (set_payment_window), and 20261031120000_events.sql (events, ticket types,
 // tickets: memoryEvents below), and 20261031130000_community.sql (gallery and mailing list: memoryCommunity), and
 // 20261031150000_restock_alerts.sql (restock requests: memoryRestock; unsubscribing also removes them), and
-// 20261031160000_list_sends.sql (sending to the mailing list: memoryListSends).
+// 20261031160000_list_sends.sql (sending to the mailing list: memoryListSends), and
+// 20261031190000_discounts.sql (discount codes: memoryDiscounts, plus place_order_v4 and the use-release trigger inside
+// memoryOrders).
 // When one changes, change the other.
 import { createApp, deriveImage, resolveVariant } from './app.ts';
 import { createFakeProvider } from './fake_payments.ts';
@@ -38,6 +40,11 @@ import type {
   CustomerStore,
   CustomerSummary,
   DeliveryOption,
+  Discount,
+  DiscountCheckResult,
+  DiscountInput,
+  DiscountStore,
+  UpsertDiscountResult,
   UpdateDeliveryOptionResult,
   DeliveryOptionStore,
   DeleteEventResult,
@@ -94,6 +101,11 @@ export interface MemoryDb {
   categories: Map<string, Category>;
   products: Map<string, StoredProduct>;
   deliveryOptions: Map<string, StoredDeliveryOption>;
+  /** discount_codes, by id. */
+  discounts: Map<string, Discount>;
+  /** discount_check_log: when each address tried a code (a check, or an order sent with a code). SQL keeps a salted
+   *  hash; this is a dev process, so the address itself is the key. */
+  discountAttempts: Map<string, number[]>;
 }
 
 type StoredDeliveryOption = DeliveryOption & { sort: number; active: boolean };
@@ -110,7 +122,93 @@ export const createMemoryDb = (): MemoryDb => ({
   categories: new Map(),
   products: new Map(),
   deliveryOptions: seedDeliveryOptions(),
+  discounts: new Map(),
+  discountAttempts: new Map(),
 });
+
+// --- Discount codes: mirrors 20261031190000_discounts.sql -------------------------------------------------------
+
+/** Checks per client address in a rolling hour (check_discount). */
+const DISCOUNT_CHECKS_PER_IP = 20;
+
+/**
+ * discount_attempt_allowed: the one limit on trying codes, shared by checks and by orders sent with a code. true (and
+ * the attempt is logged) when the address is under 20 in the rolling hour; false and nothing logged when over; no
+ * address, true and nothing logged. A failed order does not undo it, because it is logged outside the order's undo.
+ */
+function takeDiscountAttempt(db: MemoryDb, ip: string | undefined, nowMs: number): boolean {
+  if (!ip) return true;
+  const recent = (db.discountAttempts.get(ip) ?? []).filter((t) => t > nowMs - HOUR_MS);
+  if (recent.length >= DISCOUNT_CHECKS_PER_IP) {
+    db.discountAttempts.set(ip, recent);
+    return false;
+  }
+  db.discountAttempts.set(ip, [...recent, nowMs]);
+  return true;
+}
+
+/** The same rule discount_rule holds in SQL, in whole cents so the rounding is exact. `goods` is total minus delivery. */
+export type DiscountRuleResult =
+  | { ok: true; amount: number }
+  | { ok: false; reason: 'discount_invalid' }
+  | { ok: false; reason: 'discount_minimum'; minSpend: number };
+
+export function discountRule(d: Discount, goods: number, nowMs: number): DiscountRuleResult {
+  if (
+    !d.active ||
+    (d.expiresAt !== null && Date.parse(d.expiresAt) <= nowMs) ||
+    (d.maxUses !== null && d.uses >= d.maxUses)
+  ) {
+    return { ok: false, reason: 'discount_invalid' };
+  }
+  const goodsCents = Math.round(Math.max(goods, 0) * 100);
+  if (goodsCents < Math.round(d.minSpend * 100)) return { ok: false, reason: 'discount_minimum', minSpend: d.minSpend };
+  const valueCents = Math.round(d.value * 100);
+  // percent: round(goods * value / 100, 2), half away from zero; fixed: least(value, goods).
+  const amountCents = d.kind === 'percent' ? Math.round((goodsCents * valueCents) / 10000) : Math.min(valueCents, goodsCents);
+  return { ok: true, amount: amountCents / 100 };
+}
+
+/**
+ * Mirrors list_discounts, upsert_discount, discount_preview and check_discount. The orders store (memoryOrders) reads the
+ * same `db.discounts` for place_order_v4 and hands uses back, so share `db` and `lock` with it. `uses` is only ever
+ * changed there, never by upsert.
+ */
+export function memoryDiscounts(db: MemoryDb, lock: Lock = createLock(), now: () => number = Date.now): DiscountStore {
+  return {
+    list: () =>
+      Promise.resolve(
+        [...db.discounts.values()]
+          .sort((a, b) => cmp(b.createdAt, a.createdAt) || cmp(a.id, b.id))
+          .map((d) => ({ ...d })),
+      ),
+    upsert: (id, input: DiscountInput) =>
+      lock<UpsertDiscountResult>(() => {
+        const existing = db.discounts.get(id);
+        if ([...db.discounts.values()].some((d) => d.id !== id && d.code === input.code)) {
+          return Promise.resolve({ ok: false, reason: 'code_taken' });
+        }
+        const row: Discount = existing
+          ? { ...existing, ...input }
+          : { id, ...input, uses: 0, createdAt: new Date(now()).toISOString() };
+        db.discounts.set(id, row);
+        return Promise.resolve({ ok: true, discount: { ...row } });
+      }),
+    check: (code, goods, ip) =>
+      lock<DiscountCheckResult>(() => {
+        if (!takeDiscountAttempt(db, ip, now())) return Promise.resolve({ ok: false, reason: 'rate_limited' });
+        const d = findDiscount(db, code);
+        const r = d ? discountRule(d, goods, now()) : ({ ok: false, reason: 'discount_invalid' } as const);
+        return Promise.resolve(r.ok ? { ok: true, code: d!.code, amount: r.amount } : r);
+      }),
+  };
+}
+
+/** The code row for a code as typed: trimmed and upper-cased. */
+function findDiscount(db: MemoryDb, code: string): Discount | undefined {
+  const want = code.trim().toUpperCase();
+  return [...db.discounts.values()].find((d) => d.code === want);
+}
 
 /** Mirrors list_delivery_options and the admin pair: active options in sort order; every option; the locked edit. */
 export function memoryDeliveryOptions(db: MemoryDb, lock: Lock = createLock()): DeliveryOptionStore {
@@ -444,9 +542,31 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
   const iso = (ms: number = now()) => new Date(ms).toISOString();
   // payment_reference and payment_url: stored on the order row in SQL, never part of the Order JSON.
   const payments = new Map<string, { reference: string; url: string }>();
+  // orders.discount_id: the code row an order was placed with (not part of the Order JSON).
+  const discountIds = new Map<string, string>();
 
-  /** place_order_v3: place_order_v2 below, then the delivery fee and payment method on the new order. */
+  /** The orders_discount_use trigger: a use goes back when an order enters cancelled or expired, and is taken again
+   *  by a late payment (out of those two into anything but refunded, no max_uses check). Call it after EVERY status
+   *  change, whichever path made it. A code row that is gone is a no-op. */
+  function discountUse(order: Order, from: OrderStatus) {
+    const did = discountIds.get(order.id);
+    if (!did || from === order.status) return;
+    const d = db.discounts.get(did);
+    if (!d) return;
+    const out = (s: OrderStatus) => s === 'cancelled' || s === 'expired';
+    if (out(order.status) && !out(from)) d.uses = Math.max(d.uses - 1, 0);
+    else if (out(from) && !out(order.status) && order.status !== 'refunded') d.uses += 1;
+  }
+
+  /** place_order_v4 (which is place_order_v3 when there is no code): place_order_v2 below, then the delivery fee and
+   *  payment method on the new order, the rate limit, and last the discount code. */
   function place(rawId: string, items: OrderItemInput[], customer: Customer, opts?: PlaceOptions): PlaceOrderResult {
+    // place_order_v4: with a code and an address, one of the address's 20 code attempts an hour is taken FIRST and
+    // stays taken whatever happens next (SQL logs it outside the sub-block that a failed code rolls back). An
+    // existing order id (an idempotent replay) is never limited or counted. No address, no limit.
+    if (opts?.discountCode?.trim() && opts.ip && !orders.has(rawId.toLowerCase()) && !takeDiscountAttempt(db, opts.ip, now())) {
+      return { ok: false, reason: 'rate_limited' };
+    }
     // Early: an unknown or inactive delivery method. The fee is read from the table, never from the caller.
     const option = opts?.delivery ? db.deliveryOptions.get(opts.delivery.method) : undefined;
     if (opts?.delivery && !option?.active) return { ok: false, reason: 'unknown_delivery' };
@@ -469,17 +589,45 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
     if (order.paymentMethod === 'online') order.status = 'awaiting_payment';
     order.expiresAt = iso(now() + (order.paymentMethod === 'online' ? AWAITING_PAYMENT_TTL_MS : PENDING_TTL_MS));
 
-    // The rate limit is the last step, like in SQL, so a replay or a stock rejection (returned above) never counts.
+    // The rate limit is the last step of v3, like in SQL, so a replay or a stock rejection (returned above) never counts.
     // Over the limit, the order and its stock are undone, as the rolled-back block does in SQL.
+    let recent: number[] = [];
     if (opts.ip) {
-      const recent = (ipLog.get(opts.ip) ?? []).filter((t) => t > now() - HOUR_MS);
+      recent = (ipLog.get(opts.ip) ?? []).filter((t) => t > now() - HOUR_MS);
       if (recent.length >= ORDERS_PER_IP) {
         ipLog.set(opts.ip, recent);
         returnStock(order.lines);
         orders.delete(order.id);
         return { ok: false, reason: 'rate_limited' };
       }
-      ipLog.set(opts.ip, [...recent, now()]);
+    }
+
+    // place_order_v4: the discount code, after v3 and under the same lock, so the last use cannot be spent twice. A
+    // failure undoes everything v3 did (stock, order and the rate log row: it is written below, only on success).
+    const code = opts.discountCode?.trim().toUpperCase();
+    let discount: Discount | undefined;
+    let amount = 0;
+    if (code) {
+      discount = findDiscount(db, code);
+      const rule = discount
+        ? discountRule(discount, order.total - (order.deliveryFee ?? 0), now())
+        : ({ ok: false, reason: 'discount_invalid' } as const);
+      // Paystack cannot take a zero amount: an online order must keep a total above zero.
+      const zeroOnline = rule.ok && order.paymentMethod === 'online' && Math.round((order.total - rule.amount) * 100) <= 0;
+      if (!rule.ok || zeroOnline) {
+        returnStock(order.lines);
+        orders.delete(order.id);
+        return rule.ok ? { ok: false, reason: 'discount_invalid' } : rule;
+      }
+      amount = rule.amount;
+    }
+    if (opts.ip) ipLog.set(opts.ip, [...recent, now()]);
+    if (discount) {
+      order.discountCode = discount.code;
+      order.discountAmount = amount;
+      order.total = Math.round((order.total - amount) * 100) / 100;
+      discountIds.set(order.id, discount.id);
+      discount.uses += 1;
     }
     return { ok: true, created: true, order: structuredClone(order) };
   }
@@ -550,6 +698,8 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
       paidAt: null,
       expiresAt: null,
       tracking: null,
+      discountCode: null,
+      discountAmount: 0,
     };
     orders.set(id, order);
     return { ok: true, created: true, order: structuredClone(order) };
@@ -585,7 +735,9 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
     if (status === 'paid') order.paidAt = order.paidAt ?? iso();
     if (['paid', 'packed', 'shipped', 'delivered', 'refunded'].includes(status)) order.expiresAt = null;
     if (status === 'refunded' && order.paymentFlag === 'refund_due') order.paymentFlag = null;
+    const was = order.status;
     order.status = status;
+    discountUse(order, was); // the trigger fires on the update, after the stock went back
     return { ok: true, changed: true, order: structuredClone(order) };
   }
 
@@ -748,9 +900,11 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
     order.paidAt ??= iso();
     if (canServe) {
       for (const [vid, qty] of want) variants.get(vid)!.stock -= qty;
+      const was = order.status;
       order.status = 'paid';
       order.expiresAt = null;
       order.paymentFlag = null;
+      discountUse(order, was); // a late payment takes the use again
       return { ok: true, changed: true, outcome: 'paid_late' };
     }
     order.paymentFlag = 'refund_due';
@@ -773,7 +927,9 @@ export function memoryOrders(db: MemoryDb, lock: Lock = createLock(), now: () =>
     patch: (id, fields) => {
       const order = orders.get(id.toLowerCase());
       if (!order) throw new Error('no such order');
+      const was = order.status;
       Object.assign(order, fields);
+      discountUse(order, was); // a raw table update fires the trigger too
     },
     list: () =>
       Promise.resolve(
@@ -1633,6 +1789,7 @@ export async function createMemoryDeps(
     products,
     categories: memoryCategories(db, lock),
     deliveryOptions: memoryDeliveryOptions(db, lock),
+    discounts: memoryDiscounts(db, lock, now),
     customers: memoryCustomers(() => orders.list(), () => community.listSubscribers()),
     orders,
     events,

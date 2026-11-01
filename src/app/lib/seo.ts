@@ -28,9 +28,13 @@ export function absoluteUrl(origin: string, pathOrUrl: string): string {
   return `${origin}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
 }
 
+/** Whitespace collapsed and trimmed, cut to at most `max` UTF-16 units. A cut never splits a surrogate pair (an emoji). */
 export function truncate(text: string, max: number): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length <= max ? clean : clean.slice(0, max);
+  if (clean.length <= max) return clean;
+  // If the cut would land on a low surrogate, its high surrogate would be left alone, so cut one unit earlier.
+  const low = /[\uDC00-\uDFFF]/.test(clean.charAt(max));
+  return clean.slice(0, low ? max - 1 : max);
 }
 
 interface PageMetaInput {
@@ -94,7 +98,8 @@ const LEGACY_LABELS: Record<string, string> = {
 
 /** A readable name for a category id. The real name is loaded in the browser; this is for the head only. */
 export function categoryLabel(id: string): string {
-  if (LEGACY_LABELS[id]) return LEGACY_LABELS[id];
+  // Own keys only: a plain object would otherwise hand back inherited members such as "constructor".
+  if (Object.hasOwn(LEGACY_LABELS, id)) return LEGACY_LABELS[id];
   const spaced = id.replace(/[-_]+/g, " ").trim();
   return spaced.replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
@@ -117,7 +122,9 @@ export function productPath(product: Pick<Product, "id" | "slug">): string {
 export function productMeta(origin: string, product: Product): MetaDescriptor[] {
   const path = productPath(product);
   const image = product.images?.find(Boolean) || product.image || undefined;
-  const description = truncate(product.description || `${product.name} from 4Nguru The Brand Online.`, 160);
+  // A blank or whitespace-only description uses the same fallback as a missing one.
+  const own = product.description?.trim() ? product.description : `${product.name} from 4Nguru The Brand Online.`;
+  const description = truncate(own, 160);
   return pageMeta({
     origin,
     title: `${product.name} | 4Nguru`,

@@ -32,11 +32,18 @@ const saveCart = (cart: CartLine[]): boolean => {
   }
 };
 
+// A stored cart line must be an object. Anything else (null, a number, a string) is dropped.
+const isLineObject = (value: unknown): value is CartLine =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// A quantity that can go in a cart line: a whole number of 1 or more.
+const isPositiveInteger = (quantity: number): boolean => Number.isInteger(quantity) && quantity >= 1;
+
 const parseLines = (raw: string | null): CartLine[] | null => {
   if (raw === null) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as CartLine[]) : [];
+    return Array.isArray(parsed) ? parsed.filter(isLineObject) : [];
   } catch {
     return [];
   }
@@ -129,8 +136,10 @@ export const getVariantStock = (productId: string, size?: string, color?: string
 // Worked check: variant M/Black has stock 3, cart holds 2 of it.
 //   addToCart(p, 2, 'M', 'Black') -> 2 + 2 = 4 > 3, returns false.
 //   addToCart(p, 1, 'M', 'Black') -> 2 + 1 = 3, not > 3, returns true.
-// Other variants of the same product do not count against it.
+// Other variants of the same product do not count against it. A quantity that is not a whole number of 1 or more
+// is refused too, so a negative or fractional amount can never lower a line.
 export const addToCart = (product: Product, quantity: number = 1, size?: string, color?: string): boolean => {
+  if (!isPositiveInteger(quantity)) return false;
   const variant = findVariant(getCachedProduct(product.id) ?? product, size, color);
   if (!variant) return false;
   if (getCartQuantityForVariant(product.id, size, color) + quantity > variant.stock) {
@@ -153,8 +162,10 @@ export const addToCart = (product: Product, quantity: number = 1, size?: string,
   return true;
 };
 
-// Lowering a quantity is always allowed, even if the variant has gone or sold down.
+// Lowering a quantity is always allowed, even if the variant has gone or sold down. A quantity below 1 (or not a
+// whole number) is refused: removing a line is removeFromCart's job.
 export const updateCartItem = (index: number, quantity: number): boolean => {
+  if (!isPositiveInteger(quantity)) return false;
   const cart = getCart();
   const line = cart[index];
   if (!line) return false;

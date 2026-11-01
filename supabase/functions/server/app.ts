@@ -5,11 +5,13 @@ import { registerCommunityRoutes } from './community_routes.ts';
 import { registerListSendRoutes } from './list_send_routes.ts';
 import { registerCustomerRoutes } from './customers_routes.ts';
 import { registerDeliveryRoutes } from './delivery_routes.ts';
+import { registerDiscountRoutes } from './discount_routes.ts';
 import { registerRestockRoutes } from './restock_routes.ts';
 import { registerEventRoutes } from './events_routes.ts';
 import { type EmailMessage, type Mailer, orderReceivedEmail, orderShippedEmail, paymentReceivedEmail } from './mailer.ts';
 import type {
   CartQuote,
+  CartQuoteDiscount,
   CartQuoteLine,
   Deps,
   Order,
@@ -20,6 +22,7 @@ import type {
 } from './types.ts';
 import {
   CATEGORY_ID_RE,
+  DISCOUNT_CODE_RE,
   UUID_RE,
   validateCategoryBody,
   validateLookup,
@@ -93,8 +96,15 @@ export function toPublicOrder(o: Order): PublicOrder {
       : null,
     expiresAt: o.expiresAt ?? null,
     paymentMethod: o.paymentMethod ?? null,
+    discountCode: o.discountCode ?? null,
+    discountAmount: o.discountAmount ?? 0,
   };
 }
+
+/** Rand for a message: whole amounts without decimals (R500), others with two (R99.50). */
+const randText = (n: number) => `R${Number.isInteger(n) ? n : n.toFixed(2)}`;
+
+const DISCOUNT_INVALID_ERROR = "This code isn't valid";
 
 export function createApp(deps: Deps): Hono {
   const app = new Hono();
@@ -158,7 +168,31 @@ export function createApp(deps: Deps): Hono {
     }
     if (r.reason === 'unknown_delivery') return c.json({ error: 'Unknown delivery option' }, 400);
     if (r.reason === 'missing') return c.json({ error: 'Unknown products', missing: r.missing }, 400);
+    if (r.reason === 'discount_invalid') {
+      return c.json({ error: DISCOUNT_INVALID_ERROR, code: 'discount_invalid' }, 409);
+    }
+    if (r.reason === 'discount_minimum') {
+      return c.json({
+        error: `Spend at least ${randText(r.minSpend)} to use this code`,
+        code: 'discount_minimum',
+        minSpend: r.minSpend,
+      }, 409);
+    }
     return c.json({ error: 'Insufficient stock', short: r.short }, 409);
+  };
+
+  /** The `discount` part of a quote. A malformed code never reaches the store (and is not counted against the limit). */
+  const quoteDiscount = async (code: string, goods: number, ip: string | null): Promise<CartQuoteDiscount> => {
+    if (!DISCOUNT_CODE_RE.test(code)) return { error: DISCOUNT_INVALID_ERROR, code: 'discount_invalid' };
+    const r = await deps.discounts.check(code, goods, ip ?? undefined);
+    if (r.ok) return { code: r.code, amount: r.amount };
+    if (r.reason === 'rate_limited') {
+      return { error: 'Too many tries. Please wait a while and try again.', code: 'rate_limited' };
+    }
+    if (r.reason === 'discount_minimum') {
+      return { error: `Spend at least ${randText(r.minSpend)} to use this code`, code: 'discount_minimum' };
+    }
+    return { error: DISCOUNT_INVALID_ERROR, code: 'discount_invalid' };
   };
 
   // Events and tickets (Phase E): events_routes.ts.
@@ -172,6 +206,9 @@ export function createApp(deps: Deps): Hono {
 
   // Delivery options (admin read and edit of rates), delivery_routes.ts.
   registerDeliveryRoutes(app, deps, guard);
+
+  // Discount codes (admin list and edit), discount_routes.ts.
+  registerDiscountRoutes(app, deps, guard);
 
   // Customer list (admin, read-only, built from orders), customers_routes.ts.
   registerCustomerRoutes(app, deps, guard);
@@ -358,6 +395,11 @@ export function createApp(deps: Deps): Hono {
       lines.push(line);
     }
     const quote: CartQuote = { lines, total, missing };
+    // A code sent with the quote is answered beside the total, never in it: `total` is the lines, as before.
+    // The store is only asked when every line was found, because the goods amount would otherwise be wrong.
+    if (v.value.discountCode && missing.length === 0) {
+      quote.discount = await quoteDiscount(v.value.discountCode, Math.round(total * 100) / 100, clientIp(c.req.raw.headers));
+    }
     return c.json(quote);
   });
 
@@ -369,7 +411,7 @@ export function createApp(deps: Deps): Hono {
     if (!parsed.ok) return c.json({ error: 'Malformed JSON' }, 400);
     const v = validateOrder(parsed.body);
     if (!v.ok) return c.json(v.code ? { error: v.error, code: v.code } : { error: v.error }, 400);
-    const { delivery, paymentMethod } = v.value;
+    const { delivery, paymentMethod, discountCode } = v.value;
     // Before any stock is taken: an online order that could never be paid must not hold stock.
     if (paymentMethod === 'online' && !deps.payments) return c.json({ error: ONLINE_UNAVAILABLE }, 503);
     const ip = clientIp(c.req.raw.headers);
@@ -377,6 +419,7 @@ export function createApp(deps: Deps): Hono {
       delivery,
       paymentMethod,
       ...(ip ? { ip } : {}),
+      ...(discountCode ? { discountCode } : {}),
     });
     if (!r.ok) return placeFailure(c, r);
     // Only a new order sends mail: a retried id (created false) has already been announced.
@@ -395,9 +438,13 @@ export function createApp(deps: Deps): Hono {
     if (!parsed.ok) return c.json({ error: 'Malformed JSON' }, 400);
     const v = validateOrder(parsed.body, { maxUnits: false });
     if (!v.ok) return c.json(v.code ? { error: v.error, code: v.code } : { error: v.error }, 400);
-    const { delivery, paymentMethod } = v.value;
+    const { delivery, paymentMethod, discountCode } = v.value;
     if (paymentMethod === 'online' && !deps.payments) return c.json({ error: ONLINE_UNAVAILABLE }, 503);
-    const r = await deps.orders.place(v.value.id, v.value.items, v.value.customer, { delivery, paymentMethod });
+    const r = await deps.orders.place(v.value.id, v.value.items, v.value.customer, {
+      delivery,
+      paymentMethod,
+      ...(discountCode ? { discountCode } : {}),
+    });
     if (!r.ok) return placeFailure(c, r);
     let order = r.order;
     // Only a new order gets the longer window: a retried id (created false) keeps the one it has.

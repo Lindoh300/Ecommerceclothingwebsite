@@ -4,6 +4,7 @@ import type {
   DeliveryAddress,
   DeliveryInput,
   DeliveryOptionPatch,
+  DiscountInput,
   EventInput,
   EventStatus,
   GalleryInput,
@@ -204,6 +205,12 @@ export function validateCategoryBody(
   return { ok: true, value: out };
 }
 
+/** A discount code as stored: upper-case letters, digits and hyphens, 3 to 20 characters. */
+export const DISCOUNT_CODE_RE = /^[A-Z0-9-]{3,20}$/;
+
+/** Trims and upper-cases a code. '' (blank) when there is none. Does not check the shape: see DISCOUNT_CODE_RE. */
+export const normaliseDiscountCode = (raw: string): string => raw.trim().toUpperCase();
+
 export function validateQuote(body: unknown): Result<CartQuoteRequest> {
   if (!isRecord(body) || !Array.isArray(body.items)) {
     return { ok: false, error: 'items must be an array' };
@@ -231,7 +238,16 @@ export function validateQuote(body: unknown): Result<CartQuoteRequest> {
     }
     items.push(item);
   }
-  return { ok: true, value: { items } };
+  // Optional discount code. Blank counts as none. A code of the wrong shape is NOT a 400 here: a typo must not break
+  // the whole quote, so the route answers it as discount_invalid without asking the store.
+  let discountCode: string | undefined;
+  if (body.discountCode !== undefined && body.discountCode !== null) {
+    if (typeof body.discountCode !== 'string') return { ok: false, error: 'discountCode must be a string' };
+    if (body.discountCode.length > 200) return { ok: false, error: 'discountCode is too long' };
+    const code = normaliseDiscountCode(body.discountCode);
+    if (code !== '') discountCode = code;
+  }
+  return { ok: true, value: { items, ...(discountCode ? { discountCode } : {}) } };
 }
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -294,6 +310,7 @@ export function validateOrder(
   customer: Customer;
   delivery?: DeliveryInput;
   paymentMethod: PaymentMethod;
+  discountCode?: string;
 }> {
   if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
   if (typeof body.id !== 'string' || !UUID_RE.test(body.id)) {
@@ -376,7 +393,29 @@ export function validateOrder(
     if (!d.ok) return d;
     delivery = d.value;
   }
-  return { ok: true, value: { id: body.id, items, customer, ...(delivery ? { delivery } : {}), paymentMethod } };
+  // Optional discount code: trimmed and upper-cased, blank counts as none, anything else must look like a code.
+  let discountCode: string | undefined;
+  if (body.discountCode !== undefined && body.discountCode !== null) {
+    if (typeof body.discountCode !== 'string') return { ok: false, error: 'discountCode must be a string' };
+    const code = normaliseDiscountCode(body.discountCode);
+    if (code !== '') {
+      if (!DISCOUNT_CODE_RE.test(code)) {
+        return { ok: false, error: 'discountCode must be 3 to 20 letters, digits or hyphens' };
+      }
+      discountCode = code;
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      id: body.id,
+      items,
+      customer,
+      ...(delivery ? { delivery } : {}),
+      paymentMethod,
+      ...(discountCode ? { discountCode } : {}),
+    },
+  };
 }
 
 /** The statuses an admin can set through POST /orders/:id/status, with the status each one must come from
@@ -782,4 +821,55 @@ export function validateDeliveryOptionInput(body: unknown): Result<DeliveryOptio
   }
   if (typeof body.active !== 'boolean') return { ok: false, error: 'active must be true or false' };
   return { ok: true, value: { name: body.name.trim(), price: p, active: body.active } };
+}
+
+/** At most two decimal places (a tolerance for binary floats, as in validateDeliveryOptionInput). */
+const hasCents = (n: number) => Math.abs(n * 100 - Math.round(n * 100)) <= 1e-7;
+
+/**
+ * The body of PUT /admin/discounts/:id. code (3 to 20 of A-Z, 0-9, hyphen; trimmed and upper-cased), kind (percent or
+ * fixed), value (above 0, at most 2 decimals, at most 100 for a percent and 100000 for a fixed amount) and active
+ * are required. minSpend (0 or more, at most 2 decimals) defaults to 0; expiresAt (an ISO date-time, or null) and
+ * maxUses (a positive whole number, or null) default to null. Any other key, `uses` included, is ignored: the value
+ * is built key by key, so a counter cannot be set through the API.
+ */
+export function validateDiscountInput(body: unknown): Result<DiscountInput> {
+  if (!isRecord(body)) return { ok: false, error: 'Body must be a JSON object' };
+  if (typeof body.code !== 'string') return { ok: false, error: 'code must be text' };
+  const code = normaliseDiscountCode(body.code);
+  if (!DISCOUNT_CODE_RE.test(code)) return { ok: false, error: 'code must be 3 to 20 letters, digits or hyphens' };
+  if (body.kind !== 'percent' && body.kind !== 'fixed') return { ok: false, error: 'kind must be percent or fixed' };
+  const kind = body.kind;
+  const value = body.value;
+  const max = kind === 'percent' ? 100 : 100000;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > max || !hasCents(value)) {
+    return {
+      ok: false,
+      error: `value must be a number above 0 and up to ${max} with at most 2 decimals`,
+    };
+  }
+  let minSpend = 0;
+  if (body.minSpend !== undefined) {
+    const m = body.minSpend;
+    if (typeof m !== 'number' || !Number.isFinite(m) || m < 0 || m > 10000000 || !hasCents(m)) {
+      return { ok: false, error: 'minSpend must be 0 or more with at most 2 decimals' };
+    }
+    minSpend = m;
+  }
+  let expiresAt: string | null = null;
+  if (body.expiresAt !== undefined && body.expiresAt !== null) {
+    const d = isoDate(body.expiresAt);
+    if (!d) return { ok: false, error: 'expiresAt must be null or an ISO date and time, such as 2026-12-31T23:59:59Z' };
+    expiresAt = d;
+  }
+  let maxUses: number | null = null;
+  if (body.maxUses !== undefined && body.maxUses !== null) {
+    const m = body.maxUses;
+    if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > 1000000) {
+      return { ok: false, error: 'maxUses must be null or a whole number of 1 or more' };
+    }
+    maxUses = m;
+  }
+  if (typeof body.active !== 'boolean') return { ok: false, error: 'active must be true or false' };
+  return { ok: true, value: { code, kind, value, minSpend, expiresAt, maxUses, active: body.active } };
 }

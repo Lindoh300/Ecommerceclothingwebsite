@@ -133,7 +133,9 @@ function orderBlock(o: Order, siteUrl: string | null): string[] {
     const opts = [l.size, l.color].filter((x) => x).join(', ');
     out.push(`${l.quantity} x ${l.name}${opts ? ` (${opts})` : ''}`);
   }
-  out.push('', `Delivery: ${rand(o.deliveryFee ?? 0)}`, `Total: ${rand(o.total)}`);
+  out.push('');
+  if ((o.discountAmount ?? 0) > 0) out.push(`Discount (${o.discountCode ?? ''}): -${rand(o.discountAmount ?? 0)}`);
+  out.push(`Delivery: ${rand(o.deliveryFee ?? 0)}`, `Total: ${rand(o.total)}`);
   if (siteUrl) out.push('', `View your order: ${siteUrl}/order/${o.id}`);
   return out;
 }

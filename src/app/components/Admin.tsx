@@ -15,6 +15,7 @@ import { AdminCustomers } from "./AdminCustomers";
 import { AdminProducts } from "./AdminProducts";
 import { AdminCategoriesSection } from "./AdminCategories";
 import { AdminDelivery } from "./AdminDelivery";
+import { AdminDiscounts } from "./AdminDiscounts";
 import { AdminEvents } from "./AdminEvents";
 import { AdminDoor } from "./AdminDoor";
 import { AdminCommunity } from "./AdminCommunity";
@@ -33,6 +34,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { id: "products", label: "Products", Component: AdminProducts },
   { id: "categories", label: "Categories", Component: AdminCategoriesSection },
   { id: "delivery", label: "Delivery", Component: AdminDelivery },
+  { id: "discounts", label: "Discounts", Component: AdminDiscounts },
   { id: "events", label: "Events", Component: AdminEvents },
   { id: "door", label: "Door", Component: AdminDoor },
   { id: "community", label: "Community", Component: AdminCommunity },

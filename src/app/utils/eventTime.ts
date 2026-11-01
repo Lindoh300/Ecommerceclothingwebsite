@@ -40,12 +40,26 @@ export function isoToInput(iso: string | null | undefined): string {
   return p ? `${p.year}-${pad(p.month + 1)}-${pad(p.date)}T${pad(p.hours)}:${pad(p.minutes)}` : "";
 }
 
-/** The ISO time for a `datetime-local` value, read as South African time. null for an empty or bad value. */
+/**
+ * The ISO time for a `datetime-local` value, read as South African time. null for an empty or bad value, including a
+ * date or time that does not exist (30 February, month 13, hour 24). Those would otherwise roll over to a later time.
+ */
 export function inputToIso(value: string): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
   if (!m) return null;
   const [y, mo, d, h, mi] = m.slice(1).map(Number);
-  const t = Date.UTC(y, mo - 1, d, h, mi) - SAST_OFFSET_MS;
+  // setUTCFullYear (not Date.UTC) so years 0 to 99 are not read as 1900 to 1999.
+  const wall = new Date(0);
+  wall.setUTCFullYear(y, mo - 1, d);
+  wall.setUTCHours(h, mi, 0, 0);
+  const roundTrips =
+    wall.getUTCFullYear() === y &&
+    wall.getUTCMonth() === mo - 1 &&
+    wall.getUTCDate() === d &&
+    wall.getUTCHours() === h &&
+    wall.getUTCMinutes() === mi;
+  if (!roundTrips) return null;
+  const t = wall.getTime() - SAST_OFFSET_MS;
   return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 

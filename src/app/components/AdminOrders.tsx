@@ -255,6 +255,22 @@ function MessageLink({ order, origin }: MessageLinkProps) {
   );
 }
 
+/** The discount label and amount for an order, or null when it has none. Shared by the card and the table row. */
+function discountParts(order: Order): { label: string; amount: string } | null {
+  const amount = order.discountAmount ?? 0;
+  return amount > 0 ? { label: `Discount (${order.discountCode})`, amount: `-R${amount.toFixed(2)}` } : null;
+}
+
+/** The small discount line under the total in a table row. */
+function DiscountNote({ order }: { order: Order }) {
+  const discount = discountParts(order);
+  return discount ? (
+    <div className="text-b60 text-sm">
+      {discount.label} {discount.amount}
+    </div>
+  ) : null;
+}
+
 /** One order as a card, for phones: everything stacked, nothing that needs sideways scrolling. */
 function OrderCard({
   order,
@@ -264,6 +280,7 @@ function OrderCard({
   ...on
 }: OrderHandlers & TrackingProps & MessageLinkProps & { order: Order }) {
   const expires = expiryText(order);
+  const discount = discountParts(order);
   return (
     <article aria-label={`Order ${order.ref}`} className="border border-b10 r-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -276,6 +293,12 @@ function OrderCard({
           <OrderStatusInfo order={order} />
         </div>
       </div>
+      {discount && (
+        <div className="flex justify-between gap-3 text-sm">
+          <span className="text-b60 min-w-0 break-words">{discount.label}</span>
+          <span className="text-ink shrink-0">{discount.amount}</span>
+        </div>
+      )}
       {expires && (
         <div className="text-sm text-ink">
           <span className="micro text-b60">Expires </span>
@@ -339,7 +362,10 @@ function OrdersTable({
                 <td className="px-6 py-4 text-ink whitespace-nowrap">
                   <OrderLines order={order} />
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-ink">R{order.total.toFixed(2)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-ink">
+                  <div>R{order.total.toFixed(2)}</div>
+                  <DiscountNote order={order} />
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <OrderStatusInfo order={order} />
                 </td>

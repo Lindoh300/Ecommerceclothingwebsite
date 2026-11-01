@@ -7,6 +7,7 @@ import {
   memoryCustomers,
   memoryCategories,
   memoryDeliveryOptions,
+  memoryDiscounts,
   memoryCommunity,
   memoryListSends,
   memoryRestock,
@@ -1291,6 +1292,7 @@ Deno.test('delivery: an option that is inactive in the store gives 400 Unknown d
     restock: memoryRestock(),
     listSends: memoryListSends(),
     deliveryOptions: memoryDeliveryOptions(db),
+    discounts: memoryDiscounts(db),
     customers: memoryCustomers(() => orders.list(), () => Promise.resolve([])),
     payments: null,
     mailer: null,
@@ -2048,7 +2050,8 @@ Deno.test('public order: only the listed fields, and every private field is abse
   const pub = JSON.parse(text);
 
   assertEquals(Object.keys(pub).sort(), [
-    'createdAt', 'delivery', 'deliveryFee', 'expiresAt', 'id', 'lines', 'paymentMethod', 'ref', 'status', 'total', 'tracking',
+    'createdAt', 'delivery', 'deliveryFee', 'discountAmount', 'discountCode', 'expiresAt', 'id', 'lines', 'paymentMethod', 'ref',
+    'status', 'total', 'tracking',
   ]);
   assertEquals(pub.id, o.id);
   assertEquals(pub.ref, o.ref);
@@ -2117,14 +2120,14 @@ Deno.test('public order: unknown and malformed ids give the same 404, and toPubl
     tracking: { courier: 'C', number: null, url: null, secret: 'x' },
   } as unknown as Order;
   const pub = toPublicOrder(polluted);
-  assertEquals(Object.keys(pub).sort(), ['createdAt', 'delivery', 'deliveryFee', 'expiresAt', 'id', 'lines', 'paymentMethod', 'ref', 'status', 'total', 'tracking']);
+  assertEquals(Object.keys(pub).sort(), ['createdAt', 'delivery', 'deliveryFee', 'discountAmount', 'discountCode', 'expiresAt', 'id', 'lines', 'paymentMethod', 'ref', 'status', 'total', 'tracking']);
   assertEquals(pub.delivery, { method: 'door', locker: 'L1' });
   assertEquals(pub.tracking, { courier: 'C', number: null, url: null });
   assertEquals(Object.keys(pub.lines[0]).sort(), ['color', 'name', 'quantity', 'size', 'subtotal']);
   assert(!JSON.stringify(pub).includes('secret'));
   // An order from an older server, without the newer fields, is filled with the empty values.
   const old = toPublicOrder({ id: 'i', ref: 'R', createdAt: 'c', status: 'pending', lines: [], total: 5, customer: { name: 'N', phone: '1' } });
-  assertEquals(old, { id: 'i', ref: 'R', createdAt: 'c', status: 'pending', lines: [], deliveryFee: 0, total: 5, delivery: null, tracking: null, expiresAt: null, paymentMethod: null });
+  assertEquals(old, { id: 'i', ref: 'R', createdAt: 'c', status: 'pending', lines: [], deliveryFee: 0, total: 5, delivery: null, tracking: null, expiresAt: null, paymentMethod: null, discountCode: null, discountAmount: 0 });
 });
 
 // --- the public lookup -------------------------------------------------------

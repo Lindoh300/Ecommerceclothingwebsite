@@ -19,6 +19,11 @@ export function buildOrderMessage(order: Order, orderUrl?: string): string {
   });
 
   const d = order.delivery;
+  // Directly above the delivery line (or above the total when there is no delivery).
+  if (order.discountAmount && order.discountAmount > 0) {
+    message += `Discount (${order.discountCode ?? ''}): -R${order.discountAmount.toFixed(2)}\n`;
+    if (!d) message += '\n';
+  }
   if (d) {
     message += `Delivery: ${deliveryLabel(d.method)}\n`;
     if (d.address) {

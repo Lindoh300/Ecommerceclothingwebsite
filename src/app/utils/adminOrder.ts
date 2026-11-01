@@ -12,13 +12,16 @@ export function addressLine(delivery: OrderDelivery | null | undefined): string 
 
 /**
  * A phone number as wa.me wants it: international, digits only. A leading 0 becomes 27 (South Africa), a leading
- * + or 00 is dropped, and a stray (0) after +27 is dropped. Returns '' when there are fewer than 7 digits left.
+ * + or 00 is dropped, and a stray (0) after +27 is dropped. A South African mobile written with the leading 0 left
+ * off (9 digits starting 6, 7 or 8, with no + or 00) gets 27 in front. Returns '' when there are fewer than 7 digits left.
  */
 export function toWhatsAppNumber(phone: string): string {
+  const trimmed = phone.trim();
   let digits = phone.replace(/\D/g, "");
-  if (phone.trim().startsWith("00")) digits = digits.slice(2);
+  if (trimmed.startsWith("00")) digits = digits.slice(2);
   else if (digits.startsWith("270")) digits = `27${digits.slice(3)}`;
   else if (digits.startsWith("0")) digits = `27${digits.slice(1)}`;
+  else if (digits.length === 9 && /^[678]/.test(digits) && !trimmed.startsWith("+")) digits = `27${digits}`;
   return digits.length >= 7 ? digits : "";
 }
 

@@ -159,7 +159,9 @@ function OrderBody({
   const reached = STEP_INDEX[order.status] ?? 0;
   const t = order.tracking;
   const hasTracking = !!t && (t.number || t.courier || t.url);
-  const itemsTotal = order.total - order.deliveryFee;
+  const discountAmount = order.discountAmount ?? 0;
+  // `total` is net of the discount, so add it back to show the goods before the discount.
+  const itemsTotal = order.total - order.deliveryFee + discountAmount;
 
   return (
     <div>
@@ -260,6 +262,12 @@ function OrderBody({
           <span className="text-b60">Items</span>
           <span>{money(itemsTotal)}</span>
         </div>
+        {discountAmount > 0 && (
+          <div className="flex justify-between gap-4">
+            <span className="text-b60 min-w-0 break-words">Discount ({order.discountCode})</span>
+            <span className="shrink-0">-{money(discountAmount)}</span>
+          </div>
+        )}
         <div className="flex justify-between gap-4">
           <span className="text-b60 min-w-0 break-words">
             {order.delivery

@@ -6,7 +6,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { whatsappLink } from "../config/shop";
-import { getShopConfig, listDeliveryOptions, payOrder, placeOrder } from "../api/orders";
+import { checkDiscountCode, getShopConfig, listDeliveryOptions, payOrder, placeOrder } from "../api/orders";
 import { ApiError } from "../api/client";
 import type { CartQuoteItem, DeliveryInput, DeliveryMethod, DeliveryOption, Order, PaymentMethod, StockShortfall } from "../api/types";
 import { buildOrderMessage, deliveryLabel } from "../utils/orderMessage";
@@ -95,6 +95,12 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
   const [method, setMethod] = useState<string | null>(null);
   const [address, setAddress] = useState<AddressFields>(EMPTY_ADDRESS);
   const [locker, setLocker] = useState("");
+  // Discount code. `applied` remembers the items it was checked against (`key`); when the cart changes it is stale
+  // and not sent. Derived from itemsKey, so there is no flash of a wrong total.
+  const [codeInput, setCodeInput] = useState("");
+  const [applied, setApplied] = useState<{ code: string; amount: number; key: string } | null>(null);
+  const [codeError, setCodeError] = useState("");
+  const [checkingCode, setCheckingCode] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -136,10 +142,51 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
   const setAddr = (k: keyof AddressFields, v: string) => setAddress((a) => ({ ...a, [k]: v }));
 
   const itemsKey = JSON.stringify(items);
+  const itemsKeyRef = useRef(itemsKey);
   useEffect(() => {
     // Cart changed: a previous attempt's id no longer matches these lines.
     orderId.current = null;
+    itemsKeyRef.current = itemsKey;
   }, [itemsKey]);
+  const discount = applied && applied.key === itemsKey ? applied : null;
+  const codeStale = !!applied && applied.key !== itemsKey;
+
+  const handleApplyCode = async () => {
+    const code = codeInput.trim();
+    if (!code) {
+      setCodeError("Enter a discount code");
+      return;
+    }
+    if (checkingCode || submitting) return;
+    const key = itemsKey;
+    setCheckingCode(true);
+    setCodeError("");
+    try {
+      const result = await checkDiscountCode(JSON.parse(key) as CartQuoteItem[], code);
+      if (itemsKeyRef.current !== key) {
+        setApplied(null);
+        setCodeError("Check your code again");
+      } else if (typeof result.amount === "number") {
+        orderId.current = null; // the body changes, so a new attempt gets a new id
+        setApplied({ code: result.code, amount: result.amount, key });
+      } else {
+        setApplied(null);
+        setCodeError(result.error ?? "That code is not valid");
+      }
+    } catch {
+      setApplied(null);
+      setCodeError("Could not check the code. Please try again.");
+    } finally {
+      setCheckingCode(false);
+    }
+  };
+
+  const handleRemoveCode = () => {
+    orderId.current = null;
+    setApplied(null);
+    setCodeError("");
+    setCodeInput("");
+  };
 
   // Online: the order is saved, so the cart is cleared before the customer leaves. If the payment
   // can't be started, the order page offers Pay again.
@@ -199,12 +246,20 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
         },
         ...(delivery ? { delivery } : {}),
         paymentMethod: payment,
+        ...(discount ? { discountCode: discount.code } : {}),
       });
       setOrder(placed);
       onOrderChange(true);
       if (payment === "online") await startPayment(placed);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      const refusal = (err as { body?: { code?: unknown } } | null)?.body?.code;
+      if (err instanceof ApiError && err.status === 409 && (refusal === "discount_invalid" || refusal === "discount_minimum")) {
+        // The code was refused and no order was kept: not a stock problem. A new id for the next attempt.
+        orderId.current = null;
+        setApplied(null);
+        setCodeError(err.message);
+        toast.error("Discount code not applied", { description: err.message });
+      } else if (err instanceof ApiError && err.status === 409) {
         orderId.current = null;
         const short = ((err.body as { short?: StockShortfall[] } | undefined)?.short ?? []);
         toast.error("Not enough stock", {
@@ -280,6 +335,12 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
                 {order.delivery.locker ? `: ${order.delivery.locker}` : ""}
               </span>
               <span>{priceLabel(order.delivery.fee)}</span>
+            </div>
+          )}
+          {(order.discountAmount ?? 0) > 0 && (
+            <div className="flex justify-between mb-2">
+              <span>Discount ({order.discountCode})</span>
+              <span>-{money(order.discountAmount ?? 0)}</span>
             </div>
           )}
           <div className="flex justify-between mb-2">
@@ -431,6 +492,44 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               {errors.locker && <p className="text-sm text-brand">{errors.locker}</p>}
             </div>
           )}
+          <div className="space-y-1">
+            <Label htmlFor="checkout-discount">Have a discount code?</Label>
+            {discount ? (
+              <div className="flex items-center justify-between gap-4">
+                <span>
+                  {discount.code}: -{money(discount.amount)}
+                </span>
+                <button type="button" onClick={handleRemoveCode} disabled={submitting} className="linkr">
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  id="checkout-discount"
+                  value={codeInput}
+                  maxLength={40}
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  disabled={submitting || checkingCode}
+                  aria-invalid={!!codeError || codeStale}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleApplyCode();
+                    }
+                  }}
+                />
+                <button type="button" onClick={handleApplyCode} disabled={submitting || checkingCode} className="cta">
+                  {checkingCode ? "Checking…" : "Apply"}
+                </button>
+              </div>
+            )}
+            {!discount && (codeError || codeStale) && (
+              <p className="text-sm text-brand">{codeError || "Check your code again"}</p>
+            )}
+          </div>
           <fieldset className="space-y-2" disabled={submitting}>
             <legend className="micro text-b60 mb-2">Payment</legend>
             {(
@@ -465,6 +564,12 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               <span className="text-b60">Items</span>
               <span>{typeof itemsTotal === "number" ? money(itemsTotal) : "-"}</span>
             </div>
+            {discount && (
+              <div className="flex justify-between">
+                <span className="text-b60">Discount ({discount.code})</span>
+                <span>-{money(discount.amount)}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-b60">Delivery</span>
               <span>{chosen ? priceLabel(chosen.price) : "-"}</span>
@@ -473,7 +578,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
               <span className="text-b60">Estimated total</span>
               <span>
                 {typeof itemsTotal === "number" && (chosen || !(options && options.length > 0))
-                  ? money(itemsTotal + (chosen?.price ?? 0))
+                  ? money(Math.max(0, itemsTotal - (discount?.amount ?? 0)) + (chosen?.price ?? 0))
                   : "-"}
               </span>
             </div>
@@ -487,7 +592,7 @@ export function CheckoutPanel({ items, blocked, onStockShort, onCartCleared, onO
           {awaitingConfirm ? "Open WhatsApp again" : "Send on WhatsApp"}
         </button>
       ) : (
-        <button onClick={handlePlaceOrder} disabled={blocked || submitting || loadingOptions} className="cta w-full">
+        <button onClick={handlePlaceOrder} disabled={blocked || submitting || loadingOptions || checkingCode} className="cta w-full">
           {submitting ? "Placing order…" : payment === "online" ? "Place order and pay" : "Place order"}
         </button>
       )}
