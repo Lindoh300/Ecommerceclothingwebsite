@@ -1,3 +1,9 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+@import './gallery.css';
+@import './base.css';
+@import './layout-events.css';
+@import './layout-home.css';
+@import './layout-shop.css';
+@import './layout-cart.css';

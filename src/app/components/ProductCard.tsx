@@ -1,32 +1,54 @@
 import { Link } from "react-router";
-import { Product } from "../utils/storage";
+import type { Product } from "../api/types";
+import { ProductImage } from "./common";
 
 interface ProductCardProps {
   product: Product;
 }
 
+export const LOW_STOCK_TOTAL = 5;
+
+/** Total stock is the sum of the variants' stock, kept on `product.stock` by the server. */
+export function stockStatus(product: Pick<Product, "stock" | "variants">): "soldOut" | "low" | "ok" {
+  const total = product.variants?.length ? product.variants.reduce((sum, v) => sum + Math.max(0, v.stock), 0) : product.stock;
+  if (total <= 0) return "soldOut";
+  return total <= LOW_STOCK_TOTAL ? "low" : "ok";
+}
+
+/** The "Sold out" / "Low stock" mark. Renders nothing when there is plenty of stock. */
+export function StockMark({ product, className = "" }: { product: Pick<Product, "stock" | "variants">; className?: string }) {
+  const status = stockStatus(product);
+  if (status === "ok") return null;
+  return status === "soldOut" ? (
+    <span className={`stock-mark micro inline-flex items-center border border-ink bg-ink px-2 py-1 text-paper ${className}`}>Sold out</span>
+  ) : (
+    <span className={`stock-mark micro inline-flex items-center gap-2 border border-status-low bg-paper px-2 py-1 text-ink ${className}`}>
+      <span aria-hidden="true" className="h-2 w-2 bg-status-low" />
+      Low stock
+    </span>
+  );
+}
+
 export function ProductCard({ product }: ProductCardProps) {
+  const soldOut = stockStatus(product) === "soldOut";
   return (
-    <Link to={`/product/${product.id}`} className="group">
-      <div className="bg-white rounded-lg shadow hover:shadow-xl transition-shadow overflow-hidden">
-        <div className="aspect-square bg-gray-200 overflow-hidden">
-          <img
-            src={product.image}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            onError={(e) => {
-              e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="400"%3E%3Crect fill="%23e5e7eb" width="400" height="400"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="24" x="50%25" y="50%25" text-anchor="middle" dominant-baseline="middle"%3ENo Image%3C/text%3E%3C/svg%3E';
-            }}
-          />
+    <Link to={`/product/${product.id}`} className="group block min-w-0">
+      <div className="product-tile relative aspect-square bg-b5 overflow-hidden r-card">
+        <div
+          className={`h-full w-full transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100 ${
+            soldOut ? "opacity-60" : ""
+          }`}
+        >
+          <ProductImage src={product.image} alt={product.name} />
         </div>
-        <div className="p-4">
-          <h3 className="mb-2">{product.name}</h3>
-          <p className="text-gray-600 text-sm mb-2 line-clamp-2">{product.description}</p>
-          <div className="flex justify-between items-center">
-            <span className="text-blue-600">R{product.price}</span>
-            <span className="text-sm text-gray-500">{product.stock} in stock</span>
-          </div>
+        <StockMark product={product} className="absolute left-3 top-3" />
+      </div>
+      <div className="mt-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="caps font-medium text-[15px] min-w-0 break-words">{product.name}</h3>
+          <span className="product-price shrink-0">R{product.price}</span>
         </div>
+        <p className="product-desc text-b60 text-sm mt-1 line-clamp-2">{product.description}</p>
       </div>
     </Link>
   );

@@ -1,7 +1,14 @@
-import { Link } from "react-router";
-import { ShoppingCart, Menu, X, Shirt } from "lucide-react";
+import { Link, NavLink } from "react-router";
+import { ShoppingCart, Menu, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getCartCount } from "../utils/storage";
+import { ThemeToggle } from "./ThemeToggle";
+
+const navLinks = [
+  { name: "Shop", path: "/shop" },
+  { name: "Events", path: "/events" },
+  { name: "Community", path: "/community" },
+];
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -18,89 +25,79 @@ export function Header() {
     };
   }, []);
 
-  const categories = [
-    { name: 'T-Shirts', path: '/tshirts' },
-    { name: 'Jerseys', path: '/jerseys' },
-    { name: 'Shorts', path: '/shorts' },
-    { name: 'Pants', path: '/pants' },
-    { name: 'Accessories', path: '/accessories' },
-    { name: 'About', path: '/about' },
-  ];
-
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Logo and Brand */}
-          <Link to="/" className="flex items-center gap-2">
-            <img
-              src="/images/logo.jpg"
-              alt="Logo"
-              className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover"
-              onError={(e) => {
-                e.currentTarget.src = '/images/logo-placeholder.svg';
-              }}
-            />
-            <span className="font-bold text-2xl md:text-3xl">
-              <span className="text-yellow-500">4</span>
-              <span className="text-green-500">N</span>
-              <span className="text-blue-500">g</span>
-              <span className="text-red-500">u</span>
-              <span className="text-purple-500">r</span>
-              <span className="text-yellow-500">u</span>
-              <span className="text-gray-800"> The Brand Online</span>
-            </span>
+    <header className="site-header sticky top-0 z-50 border-b border-b10 bg-paper">
+      <div className="site-header-row relative mx-auto flex h-14 w-full max-w-[1360px] items-center justify-between px-4 sm:px-6">
+        {/* Logo */}
+        <Link to="/" aria-label="4Nguru home" className="flex items-center">
+          <span className="font-bold text-xl">
+            <span className="text-yellow-500">4</span>
+            <span className="text-green-500">N</span>
+            <span className="text-blue-500">g</span>
+            <span className="text-red-500">u</span>
+            <span className="text-purple-500">r</span>
+            <span className="text-yellow-500">u</span>
+          </span>
+        </Link>
+
+        {/* Desktop Navigation, centred */}
+        <nav className="site-nav hidden items-center gap-6 md:absolute md:left-1/2 md:flex md:-translate-x-1/2">
+          {navLinks.map(link => (
+            <NavLink
+              key={link.path}
+              to={link.path}
+              className={({ isActive }) =>
+                ['nav-link text-sm text-ink hover:text-b60 transition-colors', isActive ? 'font-semibold' : ''].join(' ')
+              }
+            >
+              {link.name}
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* Cart and Mobile Menu */}
+        <div className="flex items-center gap-2 sm:gap-4">
+          <ThemeToggle />
+          <Link to="/cart" aria-label={cartCount === 0 ? "Cart" : cartCount === 1 ? "Cart, 1 item" : `Cart, ${cartCount} items`} className="cart-link relative flex items-center gap-2 text-ink transition-opacity hover:opacity-60">
+            <ShoppingCart className="h-5 w-5" />
+            <span className="hidden sm:inline text-sm">Cart</span>
+            {cartCount > 0 && (
+              <span className="cart-badge absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand px-1 text-[10px] leading-none text-on-accent">
+                {cartCount}
+              </span>
+            )}
           </Link>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex gap-6">
-            {categories.map(cat => (
-              <Link
-                key={cat.path}
-                to={cat.path}
-                className="text-gray-700 hover:text-blue-600 transition-colors"
-              >
-                {cat.name}
-              </Link>
-            ))}
-          </nav>
-
-          {/* Cart and Mobile Menu */}
-          <div className="flex items-center gap-4">
-            <Link to="/cart" className="relative">
-              <ShoppingCart className="w-6 h-6 text-gray-700 hover:text-blue-600" />
-              {cartCount > 0 && (
-                <span className="absolute -top-2 -right-2 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {cartCount}
-                </span>
-              )}
-            </Link>
-
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden"
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-menu"
+            className="menu-toggle text-ink md:hidden"
+          >
+            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </button>
         </div>
-
-        {/* Mobile Menu */}
-        {mobileMenuOpen && (
-          <nav className="md:hidden py-4 border-t">
-            {categories.map(cat => (
-              <Link
-                key={cat.path}
-                to={cat.path}
-                className="block py-2 text-gray-700 hover:text-blue-600"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                {cat.name}
-              </Link>
-            ))}
-          </nav>
-        )}
       </div>
+
+      {/* Mobile Menu */}
+      {mobileMenuOpen && (
+        <nav id="mobile-menu" className="mobile-nav border-t border-b10 bg-paper px-6 md:hidden">
+          {navLinks.map(link => (
+            <NavLink
+              key={link.path}
+              to={link.path}
+              className={({ isActive }) =>
+                ['mobile-nav-link block border-b border-b10 py-4 text-base text-ink', isActive ? 'font-semibold' : ''].join(' ')
+              }
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              {link.name}
+            </NavLink>
+          ))}
+        </nav>
+      )}
     </header>
   );
 }

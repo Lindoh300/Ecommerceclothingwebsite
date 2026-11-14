@@ -1,187 +1,192 @@
-export interface Product {
-  id: string;
-  name: string;
-  category: 'tshirts' | 'jerseys' | 'shorts' | 'pants' | 'accessories';
-  price: number;
-  description: string;
-  image: string;
-  images: string[];
-  sizes: string[];
-  colors: string[];
-  stock: number;
-}
+import { toast } from "../lib/toast";
+import type { Product, Variant } from "../api/types";
+import { getCachedProduct } from "../hooks/useProducts";
 
-export interface CartItem extends Product {
+export type { Product } from "../api/types";
+
+export interface CartLine {
+  productId: string;
+  size?: string;
+  color?: string;
   quantity: number;
-  selectedSize?: string;
-  selectedColor?: string;
 }
 
-const PRODUCTS_KEY = 'clothing_store_products';
-const CART_KEY = 'clothing_store_cart';
+const CART_KEY = "clothing_store_cart_v2";
+const OLD_CART_KEY = "clothing_store_cart";
 
-// Initialize with sample products
-const defaultProducts: Product[] = [
-  {
-    id: '1',
-    name: 'Classic Cotton T-Shirt',
-    category: 'tshirts',
-    price: 25,
-    description: 'Comfortable 100% cotton t-shirt perfect for everyday wear',
-    image: '/images/products/tshirt1.jpg',
-    images: ['/images/products/tshirt1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL', 'XXL'],
-    colors: ['Black', 'White', 'Navy', 'Gray'],
-    stock: 50
-  },
-  {
-    id: '2',
-    name: 'Premium Sports Jersey',
-    category: 'jerseys',
-    price: 45,
-    description: 'Breathable sports jersey with moisture-wicking technology',
-    image: '/images/products/jersey1.jpg',
-    images: ['/images/products/jersey1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL'],
-    colors: ['Red', 'Blue', 'Green'],
-    stock: 30
-  },
-  {
-    id: '3',
-    name: 'Athletic Shorts',
-    category: 'shorts',
-    price: 30,
-    description: 'Lightweight shorts ideal for workouts and sports',
-    image: '/images/products/shorts1.jpg',
-    images: ['/images/products/shorts1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL'],
-    colors: ['Black', 'Navy', 'Gray'],
-    stock: 40
-  },
-  {
-    id: '4',
-    name: 'Casual Jogger Pants',
-    category: 'pants',
-    price: 50,
-    description: 'Comfortable jogger pants with elastic waistband',
-    image: '/images/products/pants1.jpg',
-    images: ['/images/products/pants1.jpg', '', ''],
-    sizes: ['S', 'M', 'L', 'XL', 'XXL'],
-    colors: ['Black', 'Gray', 'Khaki'],
-    stock: 35
-  },
-  {
-    id: '5',
-    name: 'Baseball Cap',
-    category: 'accessories',
-    price: 20,
-    description: 'Adjustable baseball cap with embroidered logo',
-    image: '/images/products/cap1.jpg',
-    images: ['/images/products/cap1.jpg', '', ''],
-    sizes: ['One Size'],
-    colors: ['Black', 'Navy', 'White', 'Red'],
-    stock: 60
-  }
-];
+const isQuotaError = (e: unknown): boolean =>
+  e instanceof DOMException && e.name === "QuotaExceededError";
 
-export const getProducts = (): Product[] => {
-  const stored = localStorage.getItem(PRODUCTS_KEY);
-  if (!stored) {
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(defaultProducts));
-    return defaultProducts;
-  }
-  return JSON.parse(stored);
-};
-
-export const getProductById = (id: string): Product | undefined => {
-  return getProducts().find(p => p.id === id);
-};
-
-export const getProductsByCategory = (category: string): Product[] => {
-  return getProducts().filter(p => p.category === category);
-};
-
-export const addProduct = (product: Omit<Product, 'id'>): Product => {
-  const products = getProducts();
-  const newProduct = {
-    ...product,
-    id: Date.now().toString()
-  };
-  products.push(newProduct as Product);
+// Returns false, and shows a toast if the browser storage is full.
+const saveCart = (cart: CartLine[]): boolean => {
   try {
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    return true;
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      alert('Storage quota exceeded. Please use smaller images or delete existing products. For professional use, connecting a database like Supabase is recommended.');
+    if (isQuotaError(e)) {
+      toast.error("Could not save your cart", {
+        description: "Browser storage is full. Clear some site data and try again.",
+      });
     }
-    throw e;
-  }
-  return newProduct as Product;
-};
-
-export const updateProduct = (id: string, updates: Partial<Product>): void => {
-  const products = getProducts();
-  const index = products.findIndex(p => p.id === id);
-  if (index !== -1) {
-    products[index] = { ...products[index], ...updates };
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    return false;
   }
 };
 
-export const deleteProduct = (id: string): void => {
-  const products = getProducts().filter(p => p.id !== id);
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+// A stored cart line must be an object. Anything else (null, a number, a string) is dropped.
+const isLineObject = (value: unknown): value is CartLine =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// A quantity that can go in a cart line: a whole number of 1 or more.
+const isPositiveInteger = (quantity: number): boolean => Number.isInteger(quantity) && quantity >= 1;
+
+const parseLines = (raw: string | null): CartLine[] | null => {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isLineObject) : [];
+  } catch {
+    return [];
+  }
 };
 
-export const getCart = (): CartItem[] => {
-  const stored = localStorage.getItem(CART_KEY);
-  return stored ? JSON.parse(stored) : [];
+// Moves the old cart ({id, quantity, selectedSize, selectedColor, ...}) into v2 lines.
+const migrateOldCart = (): CartLine[] | null => {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(OLD_CART_KEY);
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+
+  let lines: CartLine[] = [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      lines = parsed
+        .filter((item) => item && typeof item === "object" && item.id != null)
+        .map((item) => ({
+          productId: String(item.id),
+          size: item.selectedSize || undefined,
+          color: item.selectedColor || undefined,
+          quantity: Number(item.quantity) > 0 ? Number(item.quantity) : 1,
+        }));
+    }
+  } catch {
+    lines = [];
+  }
+  if (saveCart(lines)) {
+    try {
+      localStorage.removeItem(OLD_CART_KEY);
+    } catch {
+      // ignore
+    }
+  }
+  return lines;
 };
 
-export const addToCart = (product: Product, quantity: number = 1, size?: string, color?: string): void => {
+export const getCart = (): CartLine[] => {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(CART_KEY);
+  } catch {
+    return [];
+  }
+  if (raw === null) {
+    const migrated = migrateOldCart();
+    return migrated ?? [];
+  }
+  return parseLines(raw) ?? [];
+};
+
+// The variant of a product for a size and colour. A missing size or colour matches
+// a variant whose size or colour is ''. Undefined if there is no such variant.
+export const findVariant = (product: Pick<Product, "variants">, size?: string, color?: string): Variant | undefined =>
+  product.variants?.find((v) => v.size === (size ?? "") && v.color === (color ?? ""));
+
+// Quantity in the cart for one variant (all lines on it). Pass excludeIndex to leave out one
+// line, e.g. when that line is being changed.
+export const getCartQuantityForVariant = (
+  productId: string,
+  size?: string,
+  color?: string,
+  excludeIndex?: number
+): number => {
+  return getCart().reduce(
+    (total, line, index) =>
+      line.productId === productId &&
+      (line.size ?? "") === (size ?? "") &&
+      (line.color ?? "") === (color ?? "") &&
+      index !== excludeIndex
+        ? total + line.quantity
+        : total,
+    0
+  );
+};
+
+// Current stock of a variant from the loaded product list. 0 if the product is not loaded
+// or the variant no longer exists.
+export const getVariantStock = (productId: string, size?: string, color?: string): number => {
+  const product = getCachedProduct(productId);
+  return product ? (findVariant(product, size, color)?.stock ?? 0) : 0;
+};
+
+// Returns false, and leaves the cart unchanged, if the variant's total would exceed its stock,
+// the variant does not exist, or the cart could not be saved.
+// Worked check: variant M/Black has stock 3, cart holds 2 of it.
+//   addToCart(p, 2, 'M', 'Black') -> 2 + 2 = 4 > 3, returns false.
+//   addToCart(p, 1, 'M', 'Black') -> 2 + 1 = 3, not > 3, returns true.
+// Other variants of the same product do not count against it. A quantity that is not a whole number of 1 or more
+// is refused too, so a negative or fractional amount can never lower a line.
+export const addToCart = (product: Product, quantity: number = 1, size?: string, color?: string): boolean => {
+  if (!isPositiveInteger(quantity)) return false;
+  const variant = findVariant(getCachedProduct(product.id) ?? product, size, color);
+  if (!variant) return false;
+  if (getCartQuantityForVariant(product.id, size, color) + quantity > variant.stock) {
+    return false;
+  }
+
   const cart = getCart();
   const existingIndex = cart.findIndex(
-    item => item.id === product.id && item.selectedSize === size && item.selectedColor === color
+    (line) => line.productId === product.id && line.size === size && line.color === color
   );
 
   if (existingIndex !== -1) {
     cart[existingIndex].quantity += quantity;
   } else {
-    cart.push({ ...product, quantity, selectedSize: size, selectedColor: color });
+    cart.push({ productId: product.id, size, color, quantity });
   }
 
-  try {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    window.dispatchEvent(new Event('cartUpdated'));
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      alert('Cart is full. This usually happens when product data (including large images) exceeds the browser storage limit. Consider reducing the number of products or using a real database.');
-    }
-    throw e;
-  }
+  if (!saveCart(cart)) return false;
+  window.dispatchEvent(new Event("cartUpdated"));
+  return true;
 };
 
-export const updateCartItem = (index: number, quantity: number): void => {
+// Lowering a quantity is always allowed, even if the variant has gone or sold down. A quantity below 1 (or not a
+// whole number) is refused: removing a line is removeFromCart's job.
+export const updateCartItem = (index: number, quantity: number): boolean => {
+  if (!isPositiveInteger(quantity)) return false;
   const cart = getCart();
-  if (cart[index]) {
-    cart[index].quantity = quantity;
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  const line = cart[index];
+  if (!line) return false;
+  if (quantity > line.quantity) {
+    const others = getCartQuantityForVariant(line.productId, line.size, line.color, index);
+    if (others + quantity > getVariantStock(line.productId, line.size, line.color)) {
+      return false;
+    }
   }
+  cart[index].quantity = quantity;
+  return saveCart(cart);
 };
 
 export const removeFromCart = (index: number): void => {
-  const cart = getCart().filter((_, i) => i !== index);
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  saveCart(getCart().filter((_, i) => i !== index));
 };
 
 export const clearCart = (): void => {
-  localStorage.setItem(CART_KEY, JSON.stringify([]));
-};
-
-export const getCartTotal = (): number => {
-  return getCart().reduce((total, item) => total + (item.price * item.quantity), 0);
+  saveCart([]);
 };
 
 export const getCartCount = (): number => {
-  return getCart().reduce((count, item) => count + item.quantity, 0);
+  return getCart().reduce((count, line) => count + line.quantity, 0);
 };

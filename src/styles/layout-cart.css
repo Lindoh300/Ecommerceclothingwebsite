@@ -1,0 +1,10 @@
+/* Layout classes for the checkout page. Tokens only, so they work in every theme. */
+
+/* Stacked on phones with the order summary first; two columns from 1024px with the summary on the right. */
+.checkout-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; align-items: start; }
+.checkout-summary { order: -1; }
+
+@media (min-width: 1024px) {
+  .checkout-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 64px; }
+  .checkout-summary { order: 0; position: sticky; top: 96px; }
+}
