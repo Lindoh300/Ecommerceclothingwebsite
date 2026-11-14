@@ -1,14 +1,26 @@
 "use client";
 
-import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 import { Toaster as Sonner, ToasterProps } from "sonner";
+import { readMode, type Mode } from "../../config/mode";
 
+// Follows the site's own light/dark mode (data-mode on <html>), not the device setting.
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
+  const [mode, setMode] = useState<Mode>("light");
+
+  useEffect(() => {
+    setMode(readMode());
+    const observer = new MutationObserver(() => setMode(readMode()));
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-mode"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={mode}
       className="toaster group"
       style={
         {

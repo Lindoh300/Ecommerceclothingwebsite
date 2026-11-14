@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Vite cache
+.vite/
+
+# React Router build, generated types and Vercel output
+build/
+.react-router/
+.vercel/
+
+# Environment files (keep secrets out of git)
+.env
+.env.*
+!.env.example
+
+# Supabase local state
+supabase/.temp/
+supabase/.branches/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local Claude Code settings
+.claude/settings.local.json
+.claude/
+.impeccable/
+
+# Documents
+docs/
+AGENTS.md
+DESIGN.md
+PROJECTS.md
+

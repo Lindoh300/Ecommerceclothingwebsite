@@ -1,19 +1,61 @@
-import { useParams, useNavigate } from "react-router";
-import { useState } from "react";
-import { getProductById, addToCart } from "../utils/storage";
-import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
-import { Button } from "./ui/button";
-import { toast } from "sonner";
+import { Link, useParams, useNavigate } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { addToCart, findVariant, getCart } from "../utils/storage";
+import type { CartLine } from "../utils/storage";
+import type { Product } from "../api/types";
+import { ShoppingCart, ArrowLeft, ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
+import { toast } from "../lib/toast";
+import { useProduct, useProducts } from "../hooks/useProducts";
+import { useCategories } from "../hooks/useCategories";
+import { ProductImage } from "./common/ProductImage";
+import { LoadState } from "./common/LoadState";
+import { StockMark, stockStatus } from "./ProductCard";
+import { ProductGrid } from "./ProductGrid";
+import { RestockForm } from "./RestockForm";
+import { shop, whatsappLink } from "../config/shop";
+import { categoryPath } from "../utils/categoryPath";
 
-export function ProductDetail() {
+const LOW_STOCK_LIMIT = 3;
+
+// Struck through and disabled when the option has no stock; the text stays for screen readers.
+const optionClass = (selected: boolean) =>
+  `r-chip min-w-[48px] min-h-[44px] px-4 py-2 border text-sm transition-colors motion-reduce:transition-none disabled:cursor-not-allowed disabled:border-b10 disabled:bg-b5 disabled:text-b60 disabled:line-through ${
+    selected ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink border-b10 hover:border-ink'
+  }`;
+
+interface ProductDetailProps {
+  /** Product the route loader fetched on the server. Shown until the shared product list loads. */
+  initialProduct?: Product | null;
+  /** The loader found no such product (the page is sent with status 404). */
+  notFound?: boolean;
+}
+
+export function ProductDetail({ initialProduct = null, notFound = false }: ProductDetailProps = {}) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const product = getProductById(id || '');
+  const { product: loadedProduct, loading, error } = useProduct(id);
+  const product = loadedProduct ?? initialProduct ?? undefined;
+  const { reload, products: allProducts } = useProducts();
+  const { categories } = useCategories();
 
   const [selectedSize, setSelectedSize] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  // The cart is browser-only, so it is read after mount (empty on the server and in the first
+  // client render, which keeps hydration identical) and again whenever it changes. The quantity
+  // limit counts what is already in it.
+  const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  useEffect(() => {
+    const onChange = () => setCartLines(getCart());
+    onChange();
+    window.addEventListener('cartUpdated', onChange);
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener('cartUpdated', onChange);
+      window.removeEventListener('storage', onChange);
+    };
+  }, []);
 
   const galleryImages = (product?.images ?? []).filter(Boolean);
   const totalImages = galleryImages.length;
@@ -21,215 +63,337 @@ export function ProductDetail() {
   const goToPrev = () => setActiveImageIndex((i) => (i - 1 + totalImages) % totalImages);
   const goToNext = () => setActiveImageIndex((i) => (i + 1) % totalImages);
 
-  if (!product) {
+  // A product with one size or one colour selects it for the customer.
+  const size = product?.sizes.length === 1 ? product.sizes[0] : selectedSize;
+  const color = product?.colors.length === 1 ? product.colors[0] : selectedColor;
+  const sizeChosen = !product || product.sizes.length === 0 || !!size;
+  const colorChosen = !product || product.colors.length === 0 || !!color;
+  const variantStock = (sz: string, cl: string) => (product ? (findVariant(product, sz, cl)?.stock ?? 0) : 0);
+  // A size is out when it has no stock in the chosen colour (or in any colour, if none is chosen), and vice versa.
+  const sizeOut = (sz: string) =>
+    color || (product?.colors.length ?? 0) === 0
+      ? variantStock(sz, color) <= 0
+      : (product?.colors ?? []).every((cl) => variantStock(sz, cl) <= 0);
+  const colorOut = (cl: string) =>
+    size || (product?.sizes.length ?? 0) === 0
+      ? variantStock(size, cl) <= 0
+      : (product?.sizes ?? []).every((sz) => variantStock(sz, cl) <= 0);
+  const optionsChosen = sizeChosen && colorChosen;
+  const selectedVariant = product && optionsChosen ? findVariant(product, size, color) : undefined;
+  const selectedStock = selectedVariant?.stock ?? 0;
+  const inCart =
+    product && optionsChosen
+      ? cartLines.reduce(
+          (total, line) =>
+            line.productId === product.id && (line.size ?? "") === size && (line.color ?? "") === color
+              ? total + line.quantity
+              : total,
+          0,
+        )
+      : 0;
+  const remaining = Math.max(0, selectedStock - inCart);
+  const shownQuantity = Math.max(1, Math.min(quantity, remaining));
+  const soldOut = !!product && (product.variants?.length ? product.variants.every((v) => v.stock <= 0) : product.stock <= 0);
+  const categoryName = categories.find((c) => c.id === product?.category)?.name ?? product?.category;
+
+  // Other active, in-stock products: same category first. Empty until the list loads in the browser.
+  const alsoLike = useMemo(() => {
+    if (!product) return [];
+    const others = allProducts.filter((p) => p.id !== product.id && p.active !== false && stockStatus(p) !== "soldOut");
+    return [...others.filter((p) => p.category === product.category), ...others.filter((p) => p.category !== product.category)].slice(0, 4);
+  }, [allProducts, product]);
+
+  const askMessage = product
+    ? [
+        `Hi ${shop.name}, I am interested in ${product.name} (R${product.price}).`,
+        size ? `Size: ${size}.` : "",
+        color ? `Colour: ${color}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+
+  if (!product && !notFound && (loading || error)) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl mb-4">Product not found</h2>
-          <Button onClick={() => navigate('/')}>Go Home</Button>
+      <div className="min-h-screen bg-paper py-12 md:py-16">
+        <div className="max-w-[1360px] mx-auto px-6">
+          <LoadState loading={loading} error={error} onRetry={() => reload().catch(() => {})}>
+            {null}
+          </LoadState>
         </div>
       </div>
     );
   }
 
+  if (!product) {
+    return (
+      <div className="min-h-screen bg-paper py-12 md:py-16">
+        <div className="max-w-[1360px] mx-auto px-6 text-center">
+          <h2 className="display h-mid mb-8">Product not found</h2>
+          <button onClick={() => navigate('/')} className="cta">Go Home</button>
+        </div>
+      </div>
+    );
+  }
+
+  const addDisabled = soldOut || !optionsChosen || remaining === 0;
+  const addLabel = soldOut ? 'Out of Stock' : 'Add to Cart';
+
   const handleAddToCart = () => {
-    if (product.sizes.length > 1 && !selectedSize) {
+    if (!sizeChosen) {
       toast.error('Please select a size');
       return;
     }
-    if (product.colors.length > 1 && !selectedColor) {
-      toast.error('Please select a color');
+    if (!colorChosen) {
+      toast.error('Please select a colour');
       return;
     }
 
-    addToCart(product, quantity, selectedSize || product.sizes[0], selectedColor || product.colors[0]);
+    const added = addToCart(product, shownQuantity, size || undefined, color || undefined);
+    if (!added) {
+      toast.error('Not enough stock', {
+        description: inCart > 0
+          ? `Only ${selectedStock} available and you already have ${inCart} in your cart.`
+          : `Only ${selectedStock} available.`
+      });
+      return;
+    }
     window.dispatchEvent(new Event('cartUpdated'));
     toast.success('Added to cart!', {
-      description: `${quantity} × ${product.name}`
+      description: `${shownQuantity} × ${product.name}`
     });
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <Button
-          onClick={() => navigate(-1)}
-          variant="ghost"
-          className="mb-6"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
+    <div className="pdp-page min-h-screen bg-paper py-12 md:py-16">
+      <div className="max-w-[1360px] mx-auto px-6">
+        <div className="mb-10 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <button type="button" onClick={() => navigate(-1)} className="linkr text-ink">
+            <ArrowLeft className="w-3 h-3" />
+            Back
+          </button>
+          <nav aria-label="Breadcrumb" className="pdp-crumbs text-b60 min-w-0">
+            <Link to="/shop" className="hover:text-ink">Shop</Link>
+            {categoryName && (
+              <>
+                <span aria-hidden="true"> / </span>
+                <Link to={categoryPath(product.category)} className="hover:text-ink">{categoryName}</Link>
+              </>
+            )}
+            <span aria-hidden="true"> / </span>
+            <span aria-current="page" className="text-ink">{product.name}</span>
+          </nav>
+        </div>
 
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-          <div className="grid md:grid-cols-2 gap-8 p-8">
-            {/* Product Image Gallery */}
-            <div className="flex flex-col gap-3">
-              {/* Main Image */}
-              <div className="relative aspect-square bg-gray-100 rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-                <img
-                  key={activeImageIndex}
-                  src={product.images?.[activeImageIndex] || product.image}
-                  alt={product.name}
-                  className="w-full h-full object-cover transition-opacity duration-300"
-                  onError={(e) => {
-                    e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="400"%3E%3Crect fill="%23e5e7eb" width="400" height="400"/%3E%3Ctext fill="%236b7280" font-family="sans-serif" font-size="24" x="50%25" y="50%25" text-anchor="middle" dominant-baseline="middle"%3ENo Image%3C/text%3E%3C/svg%3E';
-                  }}
-                />
-                {/* Arrow navigation */}
-                {totalImages > 1 && (
-                  <>
-                    <button
-                      onClick={goToPrev}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-gray-800 rounded-full p-2 shadow-md backdrop-blur-sm transition-all hover:scale-105 active:scale-95"
-                      aria-label="Previous image"
-                    >
-                      <ChevronLeft className="w-5 h-5" />
-                    </button>
-                    <button
-                      onClick={goToNext}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-gray-800 rounded-full p-2 shadow-md backdrop-blur-sm transition-all hover:scale-105 active:scale-95"
-                      aria-label="Next image"
-                    >
-                      <ChevronRight className="w-5 h-5" />
-                    </button>
-                  </>
-                )}
+        <div className="grid md:grid-cols-2 gap-10 md:gap-16 md:items-start">
+          {/* Product Image Gallery */}
+          <div className="flex flex-col gap-3">
+            {/* Main Image */}
+            <div className="relative aspect-square bg-b5 overflow-hidden r-card">
+              <ProductImage
+                key={activeImageIndex}
+                src={product.images?.[activeImageIndex] || product.image}
+                alt={product.name}
+              />
+              {/* Arrow navigation */}
+              {totalImages > 1 && (
+                <>
+                  <button
+                    onClick={goToPrev}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-brand hover:text-on-accent text-ink border border-b10 r-chip p-2 transition-colors"
+                    aria-label="Previous image"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={goToNext}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 bg-paper hover:bg-brand hover:text-on-accent text-ink border border-b10 r-chip p-2 transition-colors"
+                    aria-label="Next image"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </>
+              )}
 
-                {/* View label badge */}
-                {totalImages > 1 && (
-                  <span className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
-                    {activeImageIndex + 1} / {totalImages}
-                  </span>
-                )}
-              </div>
+              {/* View label badge */}
+              {totalImages > 1 && (
+                <span className="absolute bottom-3 right-3 bg-ink text-paper text-xs px-2 py-1 r-chip">
+                  {activeImageIndex + 1} / {totalImages}
+                </span>
+              )}
+            </div>
 
-              {/* Thumbnail Strip — always show 3 slots */}
-              <div className="grid grid-cols-3 gap-3">
-                {[0, 1, 2].map((index) => {
-                  const img = product.images?.[index];
+            {/* Thumbnails: one per image the product has */}
+            {totalImages > 1 && (
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+                {galleryImages.map((img, index) => {
                   const isActive = activeImageIndex === index;
-                  const views = ['Front view', 'Back view', 'Side view'];
-                  return img ? (
+                  return (
                     <button
-                      key={index}
+                      key={`${img}-${index}`}
+                      type="button"
                       onClick={() => setActiveImageIndex(index)}
-                      className={`group relative aspect-square rounded-lg overflow-hidden border-2 transition-all duration-200 ${
-                        isActive
-                          ? 'border-blue-600 ring-2 ring-blue-100 shadow-md'
-                          : 'border-gray-200 hover:border-blue-400 hover:shadow-sm'
+                      aria-label={`Show image ${index + 1} of ${totalImages}`}
+                      aria-pressed={isActive}
+                      className={`relative aspect-square overflow-hidden border r-card transition-colors motion-reduce:transition-none ${
+                        isActive ? 'border-ink' : 'border-b10 hover:border-brand'
                       }`}
                     >
-                      <img
-                        src={img}
-                        alt={`${product.name} — ${views[index]}`}
-                        className="w-full h-full object-cover"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
-                      <div className={`absolute inset-x-0 bottom-0 py-1 text-center text-[10px] font-medium transition-colors ${
-                        isActive ? 'bg-blue-600 text-white' : 'bg-black/40 text-white group-hover:bg-blue-600'
-                      }`}>
-                        {views[index]}
-                      </div>
+                      <ProductImage src={img} alt="" />
                     </button>
-                  ) : (
-                    <div
-                      key={index}
-                      className="aspect-square rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center gap-1"
-                    >
-                      <span className="text-gray-300 text-xl">+</span>
-                      <span className="text-[10px] text-gray-400">{views[index]}</span>
-                    </div>
                   );
                 })}
               </div>
+            )}
+          </div>
+
+          {/* Product Info */}
+          <div className="min-w-0 md:sticky md:top-24">
+            <p className="page-kicker micro text-b60 mb-3">{categoryName}</p>
+            <h1 className="display h-mid mb-4">{product.name}</h1>
+            <div className="mb-6 flex flex-wrap items-center gap-4">
+              <p className="text-2xl text-ink">R{product.price}</p>
+              <StockMark product={product} />
             </div>
+            <p className="text-b60 mb-8 whitespace-pre-line">{product.description}</p>
 
-            {/* Product Info */}
-            <div>
-              <h1 className="text-3xl mb-4">{product.name}</h1>
-              <p className="text-2xl text-blue-600 mb-4">R{product.price}</p>
-              <p className="text-gray-600 mb-6">{product.description}</p>
-
-              {/* Size Selection */}
-              {product.sizes.length > 0 && (
-                <div className="mb-6">
-                  <label className="block mb-2">Size</label>
-                  <div className="flex flex-wrap gap-2">
-                    {product.sizes.map(size => (
-                      <button
-                        key={size}
-                        onClick={() => setSelectedSize(size)}
-                        className={`px-4 py-2 border rounded-lg transition-colors ${
-                          selectedSize === size
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-gray-700 border-gray-300 hover:border-blue-600'
-                        }`}
-                      >
-                        {size}
-                      </button>
-                    ))}
-                  </div>
+            {/* Colour Selection */}
+            {product.colors.length > 0 && (
+              <div className="mb-8" role="group" aria-labelledby="color-label">
+                <p id="color-label" className="micro block mb-3">Colour</p>
+                <div className="flex flex-wrap gap-2">
+                  {product.colors.map(cl => (
+                    <button
+                      key={cl}
+                      type="button"
+                      onClick={() => setSelectedColor(cl)}
+                      disabled={colorOut(cl)}
+                      aria-pressed={color === cl}
+                      className={optionClass(color === cl)}
+                    >
+                      {cl}
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Color Selection */}
-              {product.colors.length > 0 && (
-                <div className="mb-6">
-                  <label className="block mb-2">Color</label>
-                  <div className="flex flex-wrap gap-2">
-                    {product.colors.map(color => (
-                      <button
-                        key={color}
-                        onClick={() => setSelectedColor(color)}
-                        className={`px-4 py-2 border rounded-lg transition-colors ${
-                          selectedColor === color
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-gray-700 border-gray-300 hover:border-blue-600'
-                        }`}
-                      >
-                        {color}
-                      </button>
-                    ))}
-                  </div>
+            {/* Size Selection */}
+            {product.sizes.length > 0 && (
+              <div className="mb-8" role="group" aria-labelledby="size-label">
+                <p id="size-label" className="micro block mb-3">Size</p>
+                <div className="flex flex-wrap gap-2">
+                  {product.sizes.map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => setSelectedSize(sz)}
+                      disabled={sizeOut(sz)}
+                      aria-pressed={size === sz}
+                      className={optionClass(size === sz)}
+                    >
+                      {sz}
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Quantity */}
-              <div className="mb-6">
-                <label className="block mb-2">Quantity</label>
+            {/* Quantity and Add to Cart */}
+            <div className="mb-8">
+              <p className="micro block mb-3">Quantity</p>
+              <div className="pdp-buy">
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+                    type="button"
+                    onClick={() => setQuantity(Math.max(1, shownQuantity - 1))}
+                    aria-label="Decrease quantity"
+                    className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors"
                   >
                     -
                   </button>
-                  <span className="px-4 py-2 border border-gray-300 rounded-lg min-w-[60px] text-center">
-                    {quantity}
+                  <span className="w-12 h-10 border border-b10 r-chip flex items-center justify-center" aria-live="polite">
+                    {shownQuantity}
                   </span>
                   <button
-                    onClick={() => setQuantity(Math.min(product.stock, quantity + 1))}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+                    type="button"
+                    onClick={() => setQuantity(Math.min(Math.max(1, remaining), shownQuantity + 1))}
+                    disabled={!optionsChosen || shownQuantity >= remaining}
+                    aria-label="Increase quantity"
+                    className="w-10 h-10 border border-b10 r-chip text-ink hover:border-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     +
                   </button>
                 </div>
-                <p className="text-sm text-gray-500 mt-2">{product.stock} available</p>
+                <button type="button" onClick={handleAddToCart} className="cta pdp-buy-btn" disabled={addDisabled}>
+                  <ShoppingCart className="w-5 h-5" />
+                  {addLabel}
+                </button>
               </div>
+              {optionsChosen && selectedStock > 0 && selectedStock <= LOW_STOCK_LIMIT && (
+                <p className="micro text-ink mt-3">Only {selectedStock} left</p>
+              )}
+              {optionsChosen && selectedStock > 0 && remaining === 0 && (
+                <p className="micro text-b60 mt-3">You have all available in your cart</p>
+              )}
+              {!soldOut && !optionsChosen && (
+                <p className="micro text-b60 mt-3">
+                  Select {!sizeChosen && !colorChosen ? 'a size and a colour' : !sizeChosen ? 'a size' : 'a colour'} to add to cart
+                </p>
+              )}
+            </div>
 
-              {/* Add to Cart */}
-              <Button
-                onClick={handleAddToCart}
-                className="w-full py-6"
-                disabled={product.stock === 0}
-              >
-                <ShoppingCart className="w-5 h-5 mr-2" />
-                {product.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
-              </Button>
+            <RestockForm key={product.id} product={product} size={size} color={color} />
+
+            {/* Ask on WhatsApp: the message names the product and the chosen size and colour. */}
+            <a
+              href={whatsappLink(askMessage)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cta cta-quiet mt-4 w-full"
+            >
+              <MessageCircle className="w-5 h-5" aria-hidden="true" />
+              Ask on WhatsApp
+            </a>
+
+            <div className="pdp-acc mt-8">
+              <details>
+                <summary>Size guide</summary>
+                <p>
+                  Not sure which size? See the measurements, or message us on WhatsApp.{" "}
+                  <Link to="/size-guide" className="linkr text-ink">Size guide</Link>
+                </p>
+              </details>
+              <details>
+                <summary>Delivery and returns</summary>
+                <p>
+                  Door or locker delivery across South Africa. The price is worked out at checkout.{" "}
+                  <Link to="/delivery" className="linkr text-ink">Delivery</Link>{" "}
+                  <Link to="/returns" className="linkr text-ink">Returns</Link>
+                </p>
+              </details>
             </div>
           </div>
         </div>
+
+        {alsoLike.length > 0 && (
+          <section className="pdp-also" aria-labelledby="pdp-also-heading">
+            <h2 id="pdp-also-heading" className="display h-mid mb-8">You might also like</h2>
+            <ProductGrid products={alsoLike} />
+          </section>
+        )}
+      </div>
+
+      <div className="pdp-sticky">
+        <div className="pdp-sticky-info">
+          <p className="text-ink">R{product.price}</p>
+          <p className="micro text-b60 truncate">
+            {[size, color].filter(Boolean).join(" / ") || "Choose options"}
+          </p>
+        </div>
+        <button type="button" onClick={handleAddToCart} className="cta" disabled={addDisabled}>
+          {addLabel}
+        </button>
       </div>
     </div>
   );

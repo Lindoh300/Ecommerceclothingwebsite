@@ -1,0 +1,11 @@
+{
+  "nodeModulesDir": "none",
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1"
+  },
+  "tasks": {
+    "test": "deno test --allow-env",
+    "test:sql": "deno test -A ../../tests/catalogue.test.ts ../../tests/events.test.ts ../../tests/community.test.ts ../../tests/restock.test.ts ../../tests/list_send.test.ts ../../tests/delivery.test.ts ../../tests/customers.test.ts ../../tests/fit_photos.test.ts ../../tests/discounts.test.ts ../../tests/wiring.test.ts",
+    "dev": "deno run --allow-net dev.ts"
+  }
+}

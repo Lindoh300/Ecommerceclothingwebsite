@@ -1,0 +1,113 @@
+/* Layout classes shared by the events, home and community pages. Tokens only, so they work in every theme. */
+
+.sec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: clamp(20px, 3vw, 36px); }
+.page-sub { max-width: 56ch; color: var(--b60); font-size: 18px; }
+.lede { color: var(--b60); max-width: 56ch; }
+.band-tile { background: var(--b5); border-radius: var(--radius-card); max-width: 1360px; margin-inline: auto; padding: clamp(24px, 5vw, 64px); }
+
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; padding-block: 16px; border-block: 1px solid var(--b10); }
+.facts dt { font-size: 13px; color: var(--b60); }
+.facts dd { font-size: 16px; font-weight: 500; }
+@media (min-width: 820px) {
+  .facts { grid-template-columns: repeat(4, auto); }
+}
+
+/* Event poster: 4:5 image with a date tag, and an optional title block under it. */
+.ev-poster { position: relative; display: block; width: 100%; border-radius: var(--radius-card); overflow: hidden; background: var(--b5); color: var(--ink); text-decoration: none; }
+.ev-poster-img { display: block; position: relative; aspect-ratio: 4 / 5; overflow: hidden; }
+.ev-poster-img > * { transition: transform 300ms ease; }
+a.ev-poster:hover .ev-poster-img > * { transform: scale(1.03); }
+.ev-poster-date { position: absolute; top: 12px; left: 12px; display: grid; line-height: 1; background: var(--paper); color: var(--ink); padding: 8px 14px; border-radius: var(--radius-card); }
+.ev-poster-date b { font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 3vw, 32px); }
+.ev-poster-date span { font-size: 13px; color: var(--b60); padding-top: 4px; }
+.ev-poster-title { display: grid; gap: 4px; padding: 12px 14px; background: var(--paper); overflow-wrap: anywhere; }
+.ev-poster-title .display { font-size: clamp(20px, 2.4vw, 28px); line-height: 1.05; }
+.ev-poster-city { font-size: 13px; color: var(--b60); }
+
+/* Event row: thumb, title and date, then an action with an arrow. */
+.ev-row { display: grid; grid-template-columns: 64px 1fr auto; gap: 14px; align-items: center; min-height: 72px; padding-block: 12px; border-top: 1px solid var(--b10); color: var(--ink); text-decoration: none; }
+li:first-child > .ev-row { border-top: 0; }
+.ev-row-thumb { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--radius-card); overflow: hidden; background: var(--b5); }
+.ev-row-main { display: grid; gap: 2px; min-width: 0; }
+.ev-row-title { font-size: clamp(20px, 2.4vw, 28px); line-height: 1.1; overflow-wrap: anywhere; }
+.ev-row-sub { font-size: 14px; color: var(--b60); overflow-wrap: anywhere; }
+.ev-row-go { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; }
+.ev-row-go svg { width: 16px; height: 16px; transition: transform 200ms ease; }
+.ev-row:hover .ev-row-go svg { transform: translateX(4px); }
+.ev-row:hover .ev-row-title { text-decoration: underline; text-underline-offset: 4px; }
+@media (min-width: 820px) {
+  .ev-row { grid-template-columns: 88px 1fr auto; gap: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-photo img { transition: none; }
+  .cm-spot-tile:nth-child(n) { transform: none; }
+  .ev-poster-img > *, .ev-row-go svg { transition: none; }
+  a.ev-poster:hover .ev-poster-img > * { transform: none; }
+  .ev-row:hover .ev-row-go svg { transform: none; }
+}
+
+/* Events page: feature band, countdown and the "Also coming" wall. */
+.ev-feature { display: grid; gap: 32px; align-items: center; }
+.ev-feature > * { min-width: 0; }
+.ev-feature-body { display: grid; gap: 16px; justify-items: start; }
+.ev-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; }
+.ev-count-num { font-size: clamp(72px, 12vw, 140px); line-height: .85; }
+.ev-count-word { overflow-wrap: anywhere; }
+.ev-count-label { font-size: 18px; color: var(--b60); }
+.ev-feature-meta { color: var(--b60); overflow-wrap: anywhere; }
+.ev-feature-cta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+.ev-feature-price { color: var(--b60); }
+.ev-wall { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 14px; }
+.ev-wall-meta { display: flex; justify-content: space-between; gap: 12px; padding-top: 10px; font-size: 14px; color: var(--b60); }
+.ev-wall-meta > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Event detail: sticky poster beside the facts and tickets. */
+.ev-detail { display: grid; gap: 32px; align-items: start; }
+
+/* Community: photo mosaic and the join band. */
+.cm-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; grid-auto-flow: dense; }
+.cm-photo { position: relative; aspect-ratio: 1 / 1; border-radius: var(--radius-card); overflow: hidden; background: var(--b5); }
+.cm-photo:nth-child(6n + 1), .cm-photo:nth-child(6n + 5) { grid-column: span 2; grid-row: span 2; }
+.cm-photo figure { position: absolute; inset: 0; margin: 0; }
+.cm-photo img { transition: transform 300ms ease; }
+.cm-photo:hover img { transform: scale(1.03); }
+.cm-photo-cap { position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); padding: 4px 10px; background: var(--paper); color: var(--ink); border-radius: var(--radius-chip); font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.cm-join { display: grid; gap: 32px; align-items: center; }
+.cm-join > * { min-width: 0; }
+.cm-join-form { display: grid; gap: 20px; justify-items: start; }
+.cm-join-form > form { width: 100%; }
+.cm-spot-grid { list-style: none; margin: 0 0 24px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cm-spot-tile { position: relative; aspect-ratio: 4 / 5; overflow: hidden; border: 1px dashed var(--b40); border-radius: var(--radius-card); background: var(--b5); }
+.cm-spot-tile:nth-child(3n + 2) { transform: rotate(1.2deg); }
+.cm-spot-tile:nth-child(3n) { transform: rotate(-1.2deg); }
+.cm-spot-fig { width: 100%; height: 100%; object-fit: cover; opacity: 0.35; }
+.cm-spot-tag { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; text-align: center; background: var(--paper); color: var(--ink); border-radius: var(--radius-chip); font-size: 12px; }
+.cm-spot-live { border-style: solid; border-color: var(--b10); }
+.cm-spot-live a { display: block; width: 100%; height: 100%; }
+.cm-spot-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+@media (min-width: 640px) {
+  .cm-photos { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cm-spot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 820px) {
+  .ev-feature { grid-template-columns: minmax(300px, 460px) 1fr; gap: 64px; }
+  .ev-wall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 28px; }
+  .ev-detail { grid-template-columns: minmax(280px, 400px) 1fr; gap: 56px; }
+  .ev-detail-poster { position: sticky; top: 96px; }
+  .cm-join { grid-template-columns: 1fr 1fr; gap: 64px; }
+}
+@media (min-width: 1024px) {
+  .cm-photos { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .cm-spot-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+
+/* On a Mist band, quiet pills and the empty-photo poster switch to paper so they stay visible. */
+[data-theme="gallery"] .band-tile .cta-quiet { background: var(--paper); }
+[data-theme="gallery"] .band-tile .cta-quiet:hover,
+[data-theme="gallery"] .band-tile .cta-quiet:focus-visible { background: var(--b10); }
+[data-theme="gallery"] .band-tile .cta-quiet:disabled:hover,
+[data-theme="gallery"] .band-tile .cta-quiet:disabled:focus-visible { background: var(--paper); }
+[data-theme="gallery"] .band-tile .ev-poster,
+[data-theme="gallery"] .band-tile .ev-poster-img > div { background: var(--paper); }

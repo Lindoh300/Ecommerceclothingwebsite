@@ -1,36 +1,74 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
+  /* ===== THEME TOKENS: the plain default =====
+     Every colour, font, case, tracking and radius the storefront uses comes from here.
+     A rebrand is a block of these tokens, not a rewrite of the components. */
+
+  /* Colour */
+  --brand: #0a0a0a;            /* accent */
+  --ink-on-accent: #ffffff;    /* text on the accent colour */
+  --ink: #0a0a0a;              /* text, and the dark fill */
+  --paper: #ffffff;            /* page background */
+  --b5: #f5f5f5;              /* faint surface */
+  --b10: #e5e5e5;             /* hairlines and borders */
+  --b40: #8a8a8a;             /* dimmed large text */
+  --b60: #575757;             /* secondary text */
+  --focus: #0a0a0a;            /* focus ring */
+  --border: var(--b10);        /* default border colour */
+  --status-low: #8f5400;       /* low-stock marks */
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
-  --input: transparent;
-  --input-background: #f3f3f5;
+  --input-background: #ffffff;
+  --secondary: oklch(0.95 0.0058 264.53);
+  --secondary-foreground: #030213;
+  --accent: #e9ebef;
+  --accent-foreground: #030213;
   --switch-background: #cbced4;
+  --scrim: #000000;            /* dark overlay on photos */
+  --on-scrim: #ffffff;         /* text on that overlay */
+
+  /* Type */
+  --font-display: "Cabin", system-ui, sans-serif;
+  --font-body: "Cabin", system-ui, sans-serif;
+  --font-code: ui-monospace, Menlo, monospace;
+  --heading-case: none;
+  --heading-tracking: -0.01em;
+  --heading-leading: 1.2;
+  --heading-weight: 600;
+  --label-case: none;          /* .micro, nav, footer links, small labels */
+  --label-tracking: 0;
+  --button-case: none;         /* .cta */
+  --button-tracking: 0;
+  --button-weight: 600;
+
+  /* Shape */
+  --radius: 0.25rem;           /* inputs, selects, small buttons */
+  --radius-card: 0px;          /* panels, tables, product tiles */
+  --radius-button: 0.25rem;    /* .cta */
+  --radius-chip: 0px;          /* pills, option buttons, small controls */
+
+  /* Base values that the shadcn/ui primitives read; they follow the tokens above */
+  --font-size: 16px;
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --muted: var(--b5);
+  --muted-foreground: var(--b60);
+  --input: var(--b10);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
+  --ring: var(--focus);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: #030213;
@@ -105,8 +143,8 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: max(0px, calc(var(--radius) - 4px));
+  --radius-md: max(0px, calc(var(--radius) - 2px));
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --color-sidebar: var(--sidebar);
@@ -117,6 +155,21 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-brand: var(--brand);
+  --color-on-accent: var(--ink-on-accent);
+  --color-focus: var(--focus);
+  --color-scrim: var(--scrim);
+  --color-on-scrim: var(--on-scrim);
+  --color-status-low: var(--status-low);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-b5: var(--b5);
+  --color-b10: var(--b10);
+  --color-b40: var(--b40);
+  --color-b60: var(--b60);
+  --font-display: var(--font-display);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-code);
 }
 
 @layer base {
@@ -126,6 +179,19 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    background: var(--paper);
+    color: var(--ink);
+  }
+
+  ::selection {
+    background: var(--brand);
+    color: var(--ink-on-accent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
   }
 
   /**
@@ -138,12 +204,14 @@
   }
 
   h1 {
+    font-family: var(--font-display);
     font-size: var(--text-2xl);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
   }
 
   h2 {
+    font-family: var(--font-display);
     font-size: var(--text-xl);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
